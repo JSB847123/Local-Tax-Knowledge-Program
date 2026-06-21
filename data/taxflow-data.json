@@ -1,0 +1,667 @@
+{
+  "version": 1,
+  "ui": {
+    "currentTaxItemId": "tax-local-income",
+    "activeView": "legal",
+    "collapsedCategoryIds": []
+  },
+  "taxItems": [
+    {
+      "id": "tax-acquisition",
+      "code": "acquisition_tax",
+      "name": "취득세",
+      "description": "부동산·차량 등 취득 행위에 대한 지방세 업무",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "tax-property",
+      "code": "property_tax",
+      "name": "재산세",
+      "description": "토지·건축물·주택 등 보유 재산 과세 업무",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "tax-registration-license",
+      "code": "registration_license_tax",
+      "name": "등록면허세",
+      "description": "확장 세목",
+      "status": "hidden",
+      "sortOrder": 5,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "tax-resident",
+      "code": "resident_tax",
+      "name": "주민세",
+      "description": "개인분·사업소분·종업원분 주민세 업무",
+      "status": "active",
+      "sortOrder": 4,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "tax-automobile",
+      "code": "automobile_tax",
+      "name": "자동차세",
+      "description": "확장 세목",
+      "status": "hidden",
+      "sortOrder": 6,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "tax-local-income",
+      "code": "local_income_tax",
+      "name": "지방소득세",
+      "description": "개인·법인 지방소득세 신고, 부과, 특별징수 업무",
+      "status": "active",
+      "sortOrder": 3,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    }
+  ],
+  "categories": [
+    {
+      "id": "cat-acq-taxable",
+      "taxItemId": "tax-acquisition",
+      "parentId": "",
+      "name": "과세대상",
+      "description": "취득의 성립, 과세대상 판단",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-acq-rate",
+      "taxItemId": "tax-acquisition",
+      "parentId": "",
+      "name": "세율",
+      "description": "주택·농지·일반세율",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-acq-heavy",
+      "taxItemId": "tax-acquisition",
+      "parentId": "",
+      "name": "중과세",
+      "description": "대도시 법인, 사치성 재산 등 중과 판단",
+      "status": "active",
+      "sortOrder": 3,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-acq-heavy-corp",
+      "taxItemId": "tax-acquisition",
+      "parentId": "cat-acq-heavy",
+      "name": "대도시 법인",
+      "description": "지점 설치, 본점 전입, 직접사용 여부",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-acq-heavy-luxury",
+      "taxItemId": "tax-acquisition",
+      "parentId": "cat-acq-heavy",
+      "name": "사치성 재산",
+      "description": "고급주택, 별장 등",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-acq-reduction",
+      "taxItemId": "tax-acquisition",
+      "parentId": "",
+      "name": "감면",
+      "description": "감면 요건과 사후관리",
+      "status": "active",
+      "sortOrder": 4,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-acq-clawback",
+      "taxItemId": "tax-acquisition",
+      "parentId": "",
+      "name": "추징",
+      "description": "감면 후 목적 외 사용 등",
+      "status": "active",
+      "sortOrder": 5,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-standard",
+      "taxItemId": "tax-property",
+      "parentId": "",
+      "name": "과세기준일",
+      "description": "6월 1일 현재 납세의무 및 현황 판단",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-land",
+      "taxItemId": "tax-property",
+      "parentId": "",
+      "name": "토지",
+      "description": "종합합산·별도합산·분리과세",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-land-general",
+      "taxItemId": "tax-property",
+      "parentId": "cat-prop-land",
+      "name": "종합합산",
+      "description": "일반 토지 과세구분",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-land-special",
+      "taxItemId": "tax-property",
+      "parentId": "cat-prop-land",
+      "name": "별도합산",
+      "description": "건축물 부속토지 등",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-land-separate",
+      "taxItemId": "tax-property",
+      "parentId": "cat-prop-land",
+      "name": "분리과세",
+      "description": "농지, 임야 등 별도 규정",
+      "status": "active",
+      "sortOrder": 3,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-building",
+      "taxItemId": "tax-property",
+      "parentId": "",
+      "name": "건축물",
+      "description": "건축물 과세대상 및 시가표준액",
+      "status": "active",
+      "sortOrder": 3,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-house",
+      "taxItemId": "tax-property",
+      "parentId": "",
+      "name": "주택",
+      "description": "주택분 재산세",
+      "status": "active",
+      "sortOrder": 4,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-prop-reduction",
+      "taxItemId": "tax-property",
+      "parentId": "",
+      "name": "감면",
+      "description": "감면 요건과 사후관리",
+      "status": "active",
+      "sortOrder": 5,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "cat-local-income-personal",
+      "taxItemId": "tax-local-income",
+      "parentId": "",
+      "name": "개인지방소득세",
+      "description": "종합소득·양도소득·특별징수 연계",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-local-income-corporate",
+      "taxItemId": "tax-local-income",
+      "parentId": "",
+      "name": "법인지방소득세",
+      "description": "법인 신고·납부와 안분 검토",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-local-income-withholding",
+      "taxItemId": "tax-local-income",
+      "parentId": "",
+      "name": "특별징수",
+      "description": "특별징수 신고, 납부, 정산",
+      "status": "active",
+      "sortOrder": 3,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-local-income-payment",
+      "taxItemId": "tax-local-income",
+      "parentId": "",
+      "name": "신고·납부",
+      "description": "신고기한, 납부확인, 가산세",
+      "status": "active",
+      "sortOrder": 4,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-resident-individual",
+      "taxItemId": "tax-resident",
+      "parentId": "",
+      "name": "개인분",
+      "description": "개인분 주민세 부과·감면",
+      "status": "active",
+      "sortOrder": 1,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-resident-business",
+      "taxItemId": "tax-resident",
+      "parentId": "",
+      "name": "사업소분",
+      "description": "사업소분 신고·납부와 과세대상",
+      "status": "active",
+      "sortOrder": 2,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-resident-employee",
+      "taxItemId": "tax-resident",
+      "parentId": "",
+      "name": "종업원분",
+      "description": "종업원분 과세표준과 신고",
+      "status": "active",
+      "sortOrder": 3,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    },
+    {
+      "id": "cat-resident-payment",
+      "taxItemId": "tax-resident",
+      "parentId": "",
+      "name": "신고·납부",
+      "description": "납부확인, 독촉, 가산세",
+      "status": "active",
+      "sortOrder": 4,
+      "createdAt": "2026-06-21T06:17:35.1334055Z",
+      "updatedAt": "2026-06-21T06:17:35.1334055Z"
+    }
+  ],
+  "sourceDocuments": [
+    {
+      "favorite": true,
+      "tags": [
+        "대도시",
+        "중과",
+        "법인"
+      ],
+      "id": "src-acq-heavy-law",
+      "taxItemId": "tax-acquisition",
+      "categoryId": "cat-acq-heavy-corp",
+      "type": "법령",
+      "title": "지방세법상 대도시 법인 취득세 중과 근거",
+      "sourceName": "국가법령정보센터",
+      "officialUrl": "https://www.law.go.kr/LSW/lsSc.do?query=%EB%8C%80%EB%8F%84%EC%8B%9C%20%EB%B2%95%EC%9D%B8%20%EC%B7%A8%EB%93%9D%EC%84%B8%20%EC%A4%91%EA%B3%BC",
+      "sourceDate": "현행",
+      "documentNumber": "",
+      "summary": "대도시 내 법인 설립·지점 설치 후 일정 기간 내 부동산 취득 시 중과 적용 여부를 확인하기 위한 공식 검색 링크.",
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "favorite": true,
+      "tags": [
+        "별도합산",
+        "과세기준일",
+        "착공"
+      ],
+      "id": "src-prop-land-case",
+      "taxItemId": "tax-property",
+      "categoryId": "cat-prop-land-special",
+      "type": "판례",
+      "title": "재산세 토지 과세구분 관련 판례 검색",
+      "sourceName": "국가법령정보센터",
+      "officialUrl": "https://www.law.go.kr/LSW/precSc.do?query=%EC%9E%AC%EC%82%B0%EC%84%B8%20%EB%B3%84%EB%8F%84%ED%95%A9%EC%82%B0%20%EC%B0%A9%EA%B3%B5",
+      "sourceDate": "검색 링크",
+      "documentNumber": "",
+      "summary": "과세기준일 현재 착공 여부, 토지 이용상황과 별도합산 판단 자료를 확인하기 위한 판례 검색 링크.",
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    }
+  ],
+  "notes": [
+    {
+      "id": "note-acq-heavy-corp",
+      "taxItemId": "tax-acquisition",
+      "categoryId": "cat-acq-heavy-corp",
+      "title": "대도시 법인 지점 설치 후 부동산 취득 판단 기준",
+      "status": "published",
+      "judgmentCriteria": "법인의 지점 설치 시점, 취득 부동산의 사용 목적, 직접사용 여부, 임대 여부를 분리해 확인한다. 중과 여부는 단순 소재지가 아니라 법령상 대도시 요건과 기간 요건을 함께 검토한다.",
+      "body": "1. 법인 설립·전입·지점 설치일을 확인한다.\n2. 취득일이 기준 기간 안에 있는지 확인한다.\n3. 취득 부동산이 법인의 본점·지점 업무에 직접 사용되는지 확인한다.\n4. 임대 또는 목적 외 사용이 있으면 감면·중과 판단을 별도로 기록한다.\n\n개인정보가 포함된 실제 납세자 자료는 Tax-Flow에 저장하지 않고 사건번호 또는 익명화된 사례명으로만 남긴다.",
+      "tags": [
+        "대도시",
+        "중과",
+        "입문 코스"
+      ],
+      "linkedSourceIds": [
+        "src-acq-heavy-law"
+      ],
+      "favorite": true,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "note-prop-land-special",
+      "taxItemId": "tax-property",
+      "categoryId": "cat-prop-land-special",
+      "title": "과세기준일 현재 착공 토지의 별도합산 검토",
+      "status": "review",
+      "judgmentCriteria": "과세기준일 현재 단순 준비행위와 실질 착공을 구분한다. 착공신고, 공사계약, 현장 사진, 굴착 여부, 자재 반입 등 객관 자료를 함께 본다.",
+      "body": "공부상 지목과 실제 이용상황이 다를 경우 현황 과세 원칙을 검토한다. 사진, 출장복명, 인허가 문서가 서로 충돌하면 판단 근거와 보완 요청 내용을 같이 남긴다.",
+      "tags": [
+        "별도합산",
+        "과세기준일",
+        "입문 코스"
+      ],
+      "linkedSourceIds": [
+        "src-prop-land-case"
+      ],
+      "favorite": false,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    }
+  ],
+  "manuals": [
+    {
+      "id": "manual-acq-heavy-corp",
+      "taxItemId": "tax-acquisition",
+      "categoryId": "cat-acq-heavy-corp",
+      "noteId": "note-acq-heavy-corp",
+      "title": "대도시 법인 중과 전산 입력 체크",
+      "status": "published",
+      "riskLevel": "high",
+      "systemName": "차세대 지방세입정보시스템",
+      "menuPath": [
+        "부과관리",
+        "취득세",
+        "신고자료 검토",
+        "세율/중과 선택"
+      ],
+      "inputFields": [
+        {
+          "label": "취득 유형",
+          "value": "법인 부동산 취득"
+        },
+        {
+          "label": "중과 구분",
+          "value": "대도시 법인"
+        },
+        {
+          "label": "사용 구분",
+          "value": "직접사용/임대 여부 확인 후 선택"
+        }
+      ],
+      "steps": [
+        {
+          "id": "step-acq-1",
+          "title": "법인 기본정보 확인",
+          "body": "설립일, 본점 소재지, 지점 설치일을 확인한다."
+        },
+        {
+          "id": "step-acq-2",
+          "title": "중과세율 선택",
+          "body": "세율/중과 선택 화면에서 대도시 법인 중과 항목을 선택한다."
+        },
+        {
+          "id": "step-acq-3",
+          "title": "검증",
+          "body": "산출세액, 감면 배제 여부, 증빙 첨부 여부를 확인한다."
+        }
+      ],
+      "checklist": [
+        {
+          "id": "check-acq-1",
+          "text": "법인등기부 등본 확인",
+          "done": false
+        },
+        {
+          "id": "check-acq-2",
+          "text": "지점 설치일과 취득일 비교",
+          "done": false
+        },
+        {
+          "id": "check-acq-3",
+          "text": "직접사용/임대 증빙 확인",
+          "done": false
+        },
+        {
+          "id": "check-acq-4",
+          "text": "중과세율 적용 후 산출세액 검산",
+          "done": false
+        }
+      ],
+      "cautions": "유권해석이나 판례 적용 범위가 사건 사실관계와 다르면 그대로 적용하지 않는다. 최종 판단은 담당자가 공식 원문을 확인해 기록한다.",
+      "tags": [
+        "대도시",
+        "중과",
+        "전산"
+      ],
+      "favorite": true,
+      "versionNo": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "manual-prop-land-special",
+      "taxItemId": "tax-property",
+      "categoryId": "cat-prop-land-special",
+      "noteId": "note-prop-land-special",
+      "title": "토지 과세구분 변경 전산 처리",
+      "status": "draft",
+      "riskLevel": "normal",
+      "systemName": "차세대 지방세입정보시스템",
+      "menuPath": [
+        "과세자료관리",
+        "재산세",
+        "토지",
+        "과세구분 변경"
+      ],
+      "inputFields": [
+        {
+          "label": "변경 전 구분",
+          "value": "종합합산"
+        },
+        {
+          "label": "변경 후 구분",
+          "value": "별도합산"
+        },
+        {
+          "label": "적용 기준일",
+          "value": "과세기준일 현재"
+        }
+      ],
+      "steps": [
+        {
+          "id": "step-prop-1",
+          "title": "현황 자료 확인",
+          "body": "현장사진, 착공신고, 공사계약서를 대조한다."
+        },
+        {
+          "id": "step-prop-2",
+          "title": "과세구분 변경",
+          "body": "토지 과세구분 변경 화면에서 변경 사유를 기록한다."
+        }
+      ],
+      "checklist": [
+        {
+          "id": "check-prop-1",
+          "text": "현장사진 확보",
+          "done": false
+        },
+        {
+          "id": "check-prop-2",
+          "text": "착공신고 여부 확인",
+          "done": false
+        },
+        {
+          "id": "check-prop-3",
+          "text": "변경 전후 세액 비교",
+          "done": false
+        }
+      ],
+      "cautions": "공부와 현황이 다르면 현황 판단 근거를 별도 문서로 남긴다.",
+      "tags": [
+        "별도합산",
+        "전산"
+      ],
+      "favorite": false,
+      "versionNo": 1,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow-acq-heavy-corp",
+      "taxItemId": "tax-acquisition",
+      "categoryId": "cat-acq-heavy-corp",
+      "title": "대도시 법인 지점 설치 후 5년 이내 취득",
+      "issueSummary": "법인이 대도시 내 지점을 설치한 뒤 일정 기간 안에 부동산을 취득한 사안에서 중과세율 적용 여부와 전산 입력값을 함께 확인한다.",
+      "status": "published",
+      "riskLevel": "high",
+      "sourceIds": [
+        "src-acq-heavy-law"
+      ],
+      "noteIds": [
+        "note-acq-heavy-corp"
+      ],
+      "manualIds": [
+        "manual-acq-heavy-corp"
+      ],
+      "tags": [
+        "대도시",
+        "법인",
+        "중과"
+      ],
+      "favorite": true,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "id": "flow-prop-land-special",
+      "taxItemId": "tax-property",
+      "categoryId": "cat-prop-land-special",
+      "title": "과세기준일 현재 착공 토지 별도합산 판단",
+      "issueSummary": "착공 중인지 단순 준비행위인지 다투는 토지에 대해 판단 자료와 과세구분 변경 절차를 하나의 Flow로 관리한다.",
+      "status": "review",
+      "riskLevel": "normal",
+      "sourceIds": [
+        "src-prop-land-case"
+      ],
+      "noteIds": [
+        "note-prop-land-special"
+      ],
+      "manualIds": [
+        "manual-prop-land-special"
+      ],
+      "tags": [
+        "재산세",
+        "토지",
+        "별도합산"
+      ],
+      "favorite": false,
+      "createdAt": "2026-06-21T06:07:11.53Z",
+      "updatedAt": "2026-06-21T06:07:11.53Z"
+    }
+  ],
+  "tags": [],
+  "bookmarks": [],
+  "recentItems": [
+    {
+      "type": "manual",
+      "id": "manual-prop-land-special",
+      "viewedAt": "2026-06-21T06:30:44.986Z"
+    },
+    {
+      "type": "source",
+      "id": "src-prop-land-case",
+      "viewedAt": "2026-06-21T06:30:36.368Z"
+    },
+    {
+      "type": "flow",
+      "id": "flow-acq-heavy-corp",
+      "viewedAt": "2026-06-21T06:07:11.53Z"
+    },
+    {
+      "type": "manual",
+      "id": "manual-acq-heavy-corp",
+      "viewedAt": "2026-06-21T06:07:11.53Z"
+    }
+  ],
+  "searchHistory": [
+    {
+      "query": "주민세 사업소분 면적",
+      "createdAt": "2026-06-21T11:58:42.492Z"
+    },
+    {
+      "query": "부담부증여",
+      "createdAt": "2026-06-21T08:23:25.558Z"
+    },
+    {
+      "query": "재산세",
+      "createdAt": "2026-06-21T08:13:41.106Z"
+    },
+    {
+      "query": "경매",
+      "createdAt": "2026-06-21T06:29:02.188Z"
+    },
+    {
+      "query": "경매취득",
+      "createdAt": "2026-06-21T06:07:34.108Z"
+    }
+  ],
+  "revisions": [],
+  "runtimeSettings": {
+    "lawOc": ""
+  },
+  "qa": {
+    "includePublic": true,
+    "draft": "",
+    "messages": []
+  }
+}

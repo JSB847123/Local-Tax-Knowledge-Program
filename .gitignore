@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+
+taxflow-server.log
+taxflow-server.err.log
+
+data/runtime-settings.json
+
+.reference/
+.agents/
