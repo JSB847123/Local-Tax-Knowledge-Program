@@ -764,6 +764,7 @@ function renderLegalView() {
             <div class="source-links">
               ${renderOfficialLinks(app.state.legalQuery)}
             </div>
+            ${renderKeywordSearchGuide()}
           </div>
         </div>
       </section>
@@ -801,6 +802,33 @@ function renderOfficialLinks(query) {
       <span>${escapeHtml(desc)}</span>
     </a>
   `).join("");
+}
+
+function renderKeywordSearchGuide() {
+  const rows = [
+    ["여러 단어", "띄어쓰기 또는 *", "주민세 재산분 면적"],
+    ["둘 중 하나", "+ 또는 |", "해지 + 해제"],
+    ["제외", "! 뒤에 제외어", "계약 ! 근로"],
+    ["정확한 문구", "큰따옴표", "\"채무불이행\""]
+  ];
+  return `
+    <div class="search-guide">
+      <div class="guide-title">
+        <strong>키워드 검색 방법</strong>
+        <span>짧은 핵심어부터 넣고 필요하면 조건을 더하세요.</span>
+      </div>
+      <div class="guide-grid">
+        ${rows.map(([name, rule, example]) => `
+          <div class="guide-row">
+            <span>${escapeHtml(name)}</span>
+            <span>${escapeHtml(rule)}</span>
+            <code>${escapeHtml(example)}</code>
+          </div>
+        `).join("")}
+      </div>
+      <p class="guide-note">최근 용어가 안 잡히면 예전 용어도 함께 써보세요. 예: 사업소분 → 재산분, 사업소 연면적</p>
+    </div>
+  `;
 }
 
 function renderOfficialResult(result) {

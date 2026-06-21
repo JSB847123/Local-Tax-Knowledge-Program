@@ -763,6 +763,69 @@ textarea:focus {
   font-size: 12px;
 }
 
+.search-guide {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.guide-title {
+  display: grid;
+  gap: 2px;
+}
+
+.guide-title strong {
+  color: var(--ink);
+}
+
+.guide-title span,
+.guide-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.guide-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.guide-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) minmax(120px, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.guide-row span:first-child {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.guide-row code {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--accent-strong);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  overflow-wrap: anywhere;
+}
+
+.guide-note {
+  margin: 0;
+}
+
 .toggle-line {
   display: inline-flex;
   align-items: center;
