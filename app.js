@@ -12,7 +12,7 @@ const viewLabels = {
   manuals: "매뉴얼 작성"
 };
 
-const sourceTypes = ["법령", "시행령", "조례", "판례", "행정해석", "조세심판", "감사원", "내부문서"];
+const sourceTypes = ["법령", "시행령", "조례", "행정규칙", "판례", "행정해석", "조세심판", "감사원", "내부문서"];
 const qaStarterPrompts = [
   "대도시 법인 중과 판단 기준과 전산 입력 순서를 정리해줘.",
   "재산세 별도합산 토지 판단 시 확인할 자료를 알려줘.",
@@ -55,7 +55,7 @@ const bulkSourceTypeMap = {
   precedent: "판례",
   tribunal: "조세심판",
   statute: "법령",
-  admin_rule: "행정해석",
+  admin_rule: "행정규칙",
   ordinance: "조례",
   interpretation: "행정해석",
   tax_tribunal: "조세심판",

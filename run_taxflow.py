@@ -4,10 +4,13 @@ import argparse
 import json
 import mimetypes
 import os
+import random
+import re
 import socket
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 import webbrowser
@@ -28,6 +31,130 @@ HOST = "127.0.0.1"
 LAW_BASE_URL = "https://www.law.go.kr"
 LAW_SEARCH_URL = "http://www.law.go.kr/DRF/lawSearch.do"
 LAW_TIMEOUT_SECONDS = 10
+LAW_RETRY_COUNT = 2
+LAW_RETRY_DELAY_SECONDS = 0.5
+LAW_RETRY_STATUSES = {429, 503, 504}
+LAW_USER_AGENT = os.environ.get(
+    "LAW_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+)
+LAW_REFERER = os.environ.get("LAW_REFERER", "https://www.law.go.kr/")
+
+BASIC_CHAR_TRANSLATION = str.maketrans({
+    "벚": "법",
+    "벆": "법",
+    "벋": "법",
+    "뻡": "법",
+    "볍": "법",
+    "뱝": "법",
+    "셰": "세",
+    "쉐": "세",
+    "괸": "관",
+    "곽": "관",
+    "엄": "업",
+    "얼": "업",
+})
+
+LAW_ALIAS_ENTRIES = [
+    {
+        "canonical": "지방세법",
+        "aliases": ["지세법", "지방세 법"],
+        "alternatives": ["지방세법 시행령", "지방세법 시행규칙"],
+    },
+    {
+        "canonical": "지방세기본법",
+        "aliases": ["지기법", "지방세 기본법"],
+        "alternatives": ["지방세기본법 시행령", "지방세기본법 시행규칙"],
+    },
+    {
+        "canonical": "지방세징수법",
+        "aliases": ["지징법", "지방세 징수법"],
+        "alternatives": ["지방세징수법 시행령", "지방세징수법 시행규칙"],
+    },
+    {
+        "canonical": "지방세특례제한법",
+        "aliases": ["지특법", "지방세특례법", "지방세 특례 제한법", "지방세 특례제한법"],
+        "alternatives": ["지방세특례제한법 시행령", "지방세특례제한법 시행규칙"],
+    },
+    {
+        "canonical": "지방세법 시행령",
+        "aliases": ["지방세법시행령", "지세법 시행령", "지세령"],
+    },
+    {
+        "canonical": "지방세법 시행규칙",
+        "aliases": ["지방세법시행규칙", "지세법 시행규칙", "지세규"],
+    },
+    {
+        "canonical": "지방세특례제한법 시행령",
+        "aliases": ["지특법 시행령", "지특령", "지방세특례제한법시행령"],
+    },
+    {
+        "canonical": "지방세특례제한법 시행규칙",
+        "aliases": ["지특법 시행규칙", "지특규", "지방세특례제한법시행규칙"],
+    },
+    {
+        "canonical": "국세기본법",
+        "aliases": ["국기법"],
+    },
+    {
+        "canonical": "법인세법",
+        "aliases": ["법인세 법"],
+    },
+    {
+        "canonical": "소득세법",
+        "aliases": ["소득세 법"],
+    },
+    {
+        "canonical": "부가가치세법",
+        "aliases": ["부가세법"],
+    },
+]
+
+SEOUL_DISTRICTS = [
+    "강남구", "강동구", "강북구", "강서구", "관악구", "광진구", "구로구", "금천구",
+    "노원구", "도봉구", "동대문구", "동작구", "마포구", "서대문구", "서초구", "성동구",
+    "성북구", "송파구", "양천구", "영등포구", "용산구", "은평구", "종로구", "중구", "중랑구",
+]
+LOCAL_GOVERNMENT_FULL_NAMES = {
+    "서울": "서울특별시",
+    "부산": "부산광역시",
+    "대구": "대구광역시",
+    "인천": "인천광역시",
+    "광주": "광주광역시",
+    "대전": "대전광역시",
+    "울산": "울산광역시",
+    "세종": "세종특별자치시",
+    "경기": "경기도",
+    "강원": "강원특별자치도",
+    "충북": "충청북도",
+    "충남": "충청남도",
+    "전북": "전북특별자치도",
+    "전남": "전라남도",
+    "경북": "경상북도",
+    "경남": "경상남도",
+    "제주": "제주특별자치도",
+}
+KEYWORD_EXPANSIONS = {
+    "사업소분": ["재산분", "사업소세 재산할", "사업소 연면적", "사업소용 건축물 연면적"],
+    "재산분": ["사업소분", "사업소세 재산할"],
+    "종업원분": ["종업원할", "종업원 급여총액"],
+    "개인분": ["균등분", "주민세 개인균등"],
+    "중과": ["중과세", "중과세율"],
+    "감면": ["지방세 감면", "감면 추징"],
+    "추징": ["감면 추징", "목적 외 사용"],
+    "별도합산": ["별도합산과세대상", "건축물 부속토지"],
+    "대도시": ["과밀억제권역", "대도시 법인"],
+}
+PRECEDENT_STOPWORDS = {
+    "판례", "판결", "결정", "사례", "관련", "대한", "관한", "찾아줘", "찾아주세요",
+    "알려줘", "알려주세요", "검색", "조회", "가능", "가능여부", "여부", "절차", "방법",
+}
+COURT_CASE_RE = re.compile(
+    r"(?:19|20)\d{2}\s*(?:고합|고단|고정|구합|구단|구|누|두|헌가|헌나|헌다|헌라|헌마|헌바|헌사|"
+    r"카합|카단|카기|회합|회단|[가나다라마바사아자차카타파하]|고|노|도|모|보|로|초)\s*\d{1,8}",
+    re.UNICODE,
+)
 
 
 class TaxFlowHandler(BaseHTTPRequestHandler):
@@ -178,7 +305,7 @@ class TaxFlowHandler(BaseHTTPRequestHandler):
             elif results:
                 message = "국가법령정보 검색 결과입니다."
             else:
-                variants = build_query_variants(query)
+                variants = build_query_variants(query, source_type)
                 suffix = f" 추천 검색어: {', '.join(variants[:3])}" if variants else ""
                 message = f"국가법령정보 API가 '{query}' 검색어로는 0건을 반환했습니다.{suffix}"
             self.send_json({
@@ -308,24 +435,235 @@ def parse_es_fields(params: dict[str, list[str]]) -> tuple[str, ...]:
     return tuple(fields) or DEFAULT_SEARCH_FIELDS
 
 
+def normalize_basic_typos(value: str) -> str:
+    return (value or "").translate(BASIC_CHAR_TRANSLATION)
+
+
+def normalize_law_search_text(value: str) -> str:
+    text = unicodedata.normalize("NFC", value or "")
+    text = re.sub(r"[\u00a0\u2002\u2003\u2009]", " ", text)
+    text = re.sub(r"[‐‑‒–—―﹘﹣－]", "-", text)
+    text = re.sub(r"[﹦=]", " ", text)
+    text = text.replace("§", " 제")
+    text = re.sub(r"\s*-\s*", "-", text)
+    text = re.sub(r"\s*\.\s*", " ", text)
+    text = normalize_basic_typos(text)
+    text = re.sub(r"([a-zA-Z])([가-힣])", r"\1 \2", text)
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\(\s+", "(", text)
+    text = re.sub(r"\s+\)", ")", text)
+    return text.strip()
+
+
+def normalize_alias_key(value: str) -> str:
+    text = normalize_basic_typos(value).lower()
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[·•]", "", text)
+    return text
+
+
+def resolve_law_alias(law_name: str) -> dict[str, object]:
+    normalized_key = normalize_alias_key(law_name)
+    for entry in LAW_ALIAS_ENTRIES:
+        candidate_keys = [normalize_alias_key(str(entry["canonical"]))]
+        candidate_keys.extend(normalize_alias_key(alias) for alias in entry.get("aliases", []))
+        if normalized_key in candidate_keys:
+            matched_alias = next(
+                (alias for alias in entry.get("aliases", []) if normalize_alias_key(alias) == normalized_key),
+                None,
+            )
+            return {
+                "canonical": str(entry["canonical"]),
+                "matchedAlias": matched_alias,
+                "alternatives": list(entry.get("alternatives", [])),
+            }
+    return {"canonical": normalize_basic_typos(law_name).strip(), "alternatives": []}
+
+
+def extract_embedded_aliases(query: str) -> list[dict[str, object]]:
+    normalized_query = normalize_law_search_text(query)
+    normalized_query_key = normalize_alias_key(normalized_query)
+    candidates: list[dict[str, object]] = []
+    for entry in LAW_ALIAS_ENTRIES:
+        for alias in entry.get("aliases", []):
+            key = normalize_alias_key(alias)
+            if len(key) < 2:
+                continue
+            candidates.append({
+                "alias": alias,
+                "canonical": str(entry["canonical"]),
+                "alternatives": list(entry.get("alternatives", [])),
+                "key": key,
+            })
+    candidates.sort(key=lambda item: len(str(item["key"])), reverse=True)
+
+    results: list[dict[str, object]] = []
+    seen_canonicals: set[str] = set()
+    for candidate in candidates:
+        alias = str(candidate["alias"])
+        canonical = str(candidate["canonical"])
+        key = str(candidate["key"])
+        if canonical in seen_canonicals:
+            continue
+        if normalized_query_key == key or key not in normalized_query_key:
+            continue
+
+        expanded_query = re.sub(re.escape(alias), canonical, normalized_query)
+        if expanded_query == normalized_query:
+            alias_parts = [re.escape(part) for part in alias.split() if part]
+            if len(alias_parts) >= 2:
+                expanded_query = re.sub(r"\s*".join(alias_parts), canonical, normalized_query)
+        if expanded_query == normalized_query:
+            compact_alias = re.escape(alias.replace(" ", ""))
+            expanded_query = re.sub(compact_alias, canonical, normalized_query.replace(" ", ""))
+        if expanded_query == normalized_query:
+            continue
+
+        seen_canonicals.add(canonical)
+        results.append({
+            "alias": alias,
+            "canonical": canonical,
+            "alternatives": list(candidate.get("alternatives", [])),
+            "expandedQuery": expanded_query,
+        })
+    return results
+
+
+def expand_law_query(query: str) -> list[str]:
+    normalized = normalize_law_search_text(query)
+    expanded: list[str] = []
+
+    def add(value: str) -> None:
+        cleaned = normalize_law_search_text(value)
+        if cleaned and cleaned != normalized and cleaned not in expanded:
+            expanded.append(cleaned)
+
+    alias_resolution = resolve_law_alias(normalized)
+    add(str(alias_resolution["canonical"]))
+    for alternative in alias_resolution.get("alternatives", []):
+        add(str(alternative))
+
+    for match in extract_embedded_aliases(normalized):
+        add(str(match["expandedQuery"]))
+        for alternative in match.get("alternatives", []):
+            add(str(alternative))
+
+    for keyword, alternatives in KEYWORD_EXPANSIONS.items():
+        if keyword.lower() not in normalized.lower():
+            continue
+        for alternative in alternatives:
+            add(re.sub(re.escape(keyword), alternative, normalized, flags=re.IGNORECASE))
+
+    return expanded[:8]
+
+
+def expand_ordinance_query(query: str) -> list[str]:
+    normalized = normalize_law_search_text(query)
+    expanded: list[str] = []
+
+    def add(value: str) -> None:
+        cleaned = normalize_law_search_text(value)
+        if cleaned and cleaned != normalized and cleaned not in expanded:
+            expanded.append(cleaned)
+
+    for district in SEOUL_DISTRICTS:
+        if district in normalized and "서울" not in normalized:
+            add(normalized.replace(district, f"서울특별시 {district}"))
+            add(f"서울시 {district} {normalized.replace(district, '').strip()}")
+
+    for short_name, full_name in LOCAL_GOVERNMENT_FULL_NAMES.items():
+        if short_name in normalized and full_name not in normalized:
+            add(normalized.replace(short_name, full_name))
+
+    if "조례" in normalized:
+        add(normalized.replace("조례", "규칙"))
+
+    for match in extract_embedded_aliases(normalized):
+        add(str(match["expandedQuery"]))
+
+    return expanded[:5]
+
+
+def normalize_case_number(value: str) -> str:
+    return re.sub(r"\s+", "", normalize_law_search_text(value))
+
+
+def extract_case_number(value: str) -> str:
+    match = COURT_CASE_RE.search(normalize_law_search_text(value))
+    return normalize_case_number(match.group(0)) if match else ""
+
+
+def normalize_precedent_query(query: str) -> str:
+    normalized = normalize_law_search_text(query)
+    normalized = re.sub(r"<[^>]*>", " ", normalized)
+    normalized = COURT_CASE_RE.sub(lambda match: normalize_case_number(match.group(0)), normalized)
+    normalized = re.sub(r"(대법원|고등법원|지방법원|가정법원|행정법원|특허법원|법원)", " ", normalized)
+    normalized = re.sub(r"(판례|판결|결정례|결정|사례)", " ", normalized)
+    normalized = re.sub(r"(찾아주세요|찾아줘|알려주세요|알려줘|검색해주세요|검색해줘|조회해주세요|조회해줘|검색|조회)", " ", normalized)
+    normalized = re.sub(r"\s+[을를이가은는]\s+", " ", normalized)
+    normalized = re.sub(r"\s+[을를이가은는]$", "", normalized)
+    normalized = re.sub(r"\b(관련|대한|관한)\b", " ", normalized)
+    return clean_text(normalized)
+
+
+def normalize_axis_token(token: str) -> str:
+    token = re.sub(r"[?？!.,]", "", token)
+    token = re.sub(r"(에서|에게|으로|로서|로써|부터|까지|입니다|합니다|했다|한다|해요)$", "", token)
+    token = re.sub(r"(되었는지|되었는가|되는지|되는가|인가요|인지요|인가|인지)$", "", token)
+    token = re.sub(r"(가|이|은|는|을|를|에|의|와|과)$", "", token)
+    token = re.sub(r"된$", "", token)
+    return token.strip()
+
+
+def compact_precedent_queries(query: str, max_count: int = 5) -> list[str]:
+    normalized = normalize_precedent_query(query)
+    candidates: list[str] = []
+
+    def add(value: str) -> None:
+        cleaned = clean_text(value)
+        if 2 <= len(cleaned) <= 40 and cleaned not in candidates:
+            candidates.append(cleaned)
+
+    case_number = extract_case_number(query)
+    if case_number:
+        add(case_number)
+    add(normalized)
+
+    tokens = [
+        normalize_axis_token(token)
+        for token in re.sub(r"[^0-9A-Za-z가-힣]+", " ", normalized).split()
+    ]
+    tokens = [token for token in tokens if len(token) >= 2 and token not in PRECEDENT_STOPWORDS]
+    if len(tokens) >= 2:
+        add(" ".join(tokens[:3]))
+        for index in range(len(tokens) - 1):
+            add(f"{tokens[index]} {tokens[index + 1]}")
+    for token in tokens:
+        add(token)
+
+    return [candidate for candidate in candidates if candidate != normalize_law_search_text(query)][:max_count]
+
+
 def search_law_documents(law_oc: str, query: str, source_type: str, max_results: int) -> tuple[list[dict[str, str]], list[str]]:
     targets = legal_targets_for_type(source_type)
     max_total = max(1, max_results * max(1, len(targets)))
     per_target = max(1, max_results)
     results: list[dict[str, str]] = []
     used_queries: list[str] = []
+    normalized_query = normalize_law_search_text(query)
+    query_candidates = [normalized_query]
+    for variant in build_query_variants(query, source_type):
+        if variant not in query_candidates:
+            query_candidates.append(variant)
 
-    original_results = search_law_targets(law_oc, query, targets, per_target)
-    if original_results:
-        return dedupe_law_results(original_results)[:max_total], [query]
-
-    for variant in build_query_variants(query):
-        variant_results = search_law_targets(law_oc, variant, targets, min(per_target, 10))
-        if not variant_results:
+    for index, candidate in enumerate(query_candidates):
+        candidate_results = search_law_targets(law_oc, candidate, targets, per_target if index == 0 else min(per_target, 10))
+        if not candidate_results:
             continue
-        used_queries.append(variant)
-        for result in variant_results:
-            result["matchedQuery"] = variant
+        used_queries.append(candidate)
+        for result in candidate_results:
+            if candidate != normalized_query:
+                result["matchedQuery"] = candidate
             results.append(result)
         results = dedupe_law_results(results)
         if len(results) >= max_total:
@@ -341,8 +679,8 @@ def search_law_targets(law_oc: str, query: str, targets: list[str], per_target: 
     return results
 
 
-def build_query_variants(query: str) -> list[str]:
-    cleaned = clean_text(query)
+def build_query_variants(query: str, source_type: str = "전체") -> list[str]:
+    cleaned = normalize_law_search_text(query)
     if not cleaned:
         return []
 
@@ -352,6 +690,13 @@ def build_query_variants(query: str) -> list[str]:
         value = clean_text(value)
         if value and value != cleaned and value not in variants:
             variants.append(value)
+
+    for expanded in expand_law_query(cleaned):
+        add(expanded)
+
+    if source_type in {"전체", "조례"}:
+        for expanded in expand_ordinance_query(cleaned):
+            add(expanded)
 
     if "사업소분" in cleaned:
         add(cleaned.replace("사업소분", "재산분"))
@@ -369,6 +714,10 @@ def build_query_variants(query: str) -> list[str]:
         add(cleaned.replace("종업원분", "종업원할"))
     if "개인분" in cleaned:
         add(cleaned.replace("개인분", "균등분"))
+
+    if source_type in {"전체", "판례"}:
+        for compact in compact_precedent_queries(cleaned):
+            add(compact)
 
     tokens = [token for token in cleaned.split() if len(token) > 1]
     for index in range(len(tokens) - 1):
@@ -398,75 +747,190 @@ def dedupe_law_results(results: list[dict[str, str]]) -> list[dict[str, str]]:
 def legal_targets_for_type(source_type: str) -> list[str]:
     if source_type == "판례":
         return ["prec"]
-    if source_type in {"법령", "시행령", "조례"}:
+    if source_type == "조례":
+        return ["ordin"]
+    if source_type in {"법령", "시행령"}:
         return ["law"]
+    if source_type == "행정규칙":
+        return ["admrul"]
     if source_type == "행정해석":
         return ["expc"]
     if source_type == "조세심판":
         return ["ttSpecialDecc", "expc"]
     if source_type == "감사원":
         return ["expc"]
-    return ["law", "prec", "expc", "ttSpecialDecc"]
+    return ["law", "prec", "expc", "ttSpecialDecc", "ordin", "admrul"]
 
 
 def search_law_target(law_oc: str, query: str, target: str, max_results: int) -> list[dict[str, str]]:
-    params = {
-        "OC": law_oc,
-        "target": target,
-        "type": "XML",
-        "query": query,
-        "display": str(max_results),
-    }
-    root = request_law_xml(params)
-    if root is None:
-        return []
-    error_message = law_api_error_message(root)
-    if error_message:
-        raise RuntimeError(error_message)
+    for attempt in target_search_attempts(target, query):
+        params = {
+            "OC": law_oc,
+            "target": target,
+            "type": "XML",
+            "display": str(max_results),
+            **attempt["params"],
+        }
+        root = request_law_xml(params)
+        if root is None:
+            continue
+        error_message = law_api_error_message(root)
+        if error_message:
+            raise RuntimeError(error_message)
 
-    signatures = {
-        "law": ["법령일련번호", "법령명한글", "법령명_한글", "법령ID"],
-        "prec": ["판례일련번호", "판례정보일련번호", "사건명", "사건번호"],
-        "expc": ["법령해석례일련번호", "안건명", "안건번호"],
-        "ttSpecialDecc": ["특별행정심판재결례일련번호", "사건명", "청구번호"],
-    }
-    nodes = find_record_nodes(root, signatures.get(target, []))
-    mapped = [map_law_record(node, target) for node in nodes]
-    return [item for item in mapped if item.get("title")][:max_results]
+        signatures = {
+            "law": ["법령일련번호", "법령명한글", "법령명_한글", "법령ID"],
+            "prec": ["판례일련번호", "판례정보일련번호", "사건명", "사건번호"],
+            "expc": ["법령해석례일련번호", "안건명", "안건번호"],
+            "ttSpecialDecc": ["특별행정심판재결례일련번호", "사건명", "청구번호"],
+            "ordin": ["자치법규일련번호", "자치법규명", "지자체기관명"],
+            "admrul": ["행정규칙일련번호", "행정규칙명", "행정규칙ID"],
+        }
+        nodes = find_record_nodes(root, signatures.get(target, []))
+        mapped = [map_law_record(node, target) for node in nodes]
+        mapped = [item for item in mapped if item.get("title")]
+        if not mapped:
+            continue
+        sorted_results = sort_law_results(mapped, query, target)
+        if attempt["label"] != query:
+            for result in sorted_results:
+                result["matchedQuery"] = attempt["label"]
+        return sorted_results[:max_results]
+    return []
+
+
+def target_search_attempts(target: str, query: str) -> list[dict[str, object]]:
+    attempts: list[dict[str, object]] = []
+    seen: set[str] = set()
+
+    def add(label: str, params: dict[str, str]) -> None:
+        key = json.dumps(params, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            return
+        seen.add(key)
+        attempts.append({"label": label, "params": params})
+
+    if target == "prec":
+        case_number = extract_case_number(query)
+        if case_number:
+            add(case_number, {"nb": case_number})
+        add(query, {"query": query})
+        add(f"{query} 본문검색", {"query": query, "search": "2"})
+        return attempts
+
+    add(query, {"query": query})
+    return attempts
 
 
 def request_law_xml(params: dict[str, str]) -> ET.Element | None:
     url = f"{LAW_SEARCH_URL}?{urlencode(params)}"
-    request = urllib.request.Request(url, headers={"User-Agent": "TaxFlowLocal/1.0"})
+    last_error: Exception | None = None
+    for attempt in range(LAW_RETRY_COUNT + 1):
+        request = urllib.request.Request(url, headers=law_request_headers(url))
+        try:
+            with urllib.request.urlopen(request, timeout=LAW_TIMEOUT_SECONDS) as response:
+                raw = response.read()
+                status = response.getcode()
+                if status in LAW_RETRY_STATUSES and attempt < LAW_RETRY_COUNT:
+                    sleep_before_law_retry(attempt)
+                    continue
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code in LAW_RETRY_STATUSES and attempt < LAW_RETRY_COUNT:
+                sleep_before_law_retry(attempt)
+                continue
+            raise RuntimeError(f"국가법령정보 API 오류 {exc.code}: {mask_sensitive_url(url)}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            if attempt < LAW_RETRY_COUNT:
+                sleep_before_law_retry(attempt)
+                continue
+            raise RuntimeError(mask_sensitive_url(str(exc))) from exc
+
+        bad_body = detect_bad_law_body(raw)
+        if bad_body and attempt < LAW_RETRY_COUNT:
+            last_error = RuntimeError(f"법제처 API 비정상 응답({bad_body})")
+            sleep_before_law_retry(attempt)
+            continue
+        if bad_body:
+            raise RuntimeError(f"국가법령정보 API가 {bad_body} 응답을 반환했습니다. 잠시 후 다시 시도하세요.")
+
+        try:
+            return ET.fromstring(raw)
+        except ET.ParseError as exc:
+            last_error = exc
+            if attempt < LAW_RETRY_COUNT:
+                sleep_before_law_retry(attempt)
+                continue
+            raise RuntimeError("응답 XML을 해석할 수 없습니다.") from exc
+
+    if last_error:
+        raise RuntimeError(mask_sensitive_url(str(last_error))) from last_error
+    return None
+
+
+def law_request_headers(url: str) -> dict[str, str]:
+    headers = {"User-Agent": LAW_USER_AGENT}
+    if is_law_go_kr_url(url):
+        headers["Referer"] = LAW_REFERER
+    return headers
+
+
+def is_law_go_kr_url(url: str) -> bool:
     try:
-        with urllib.request.urlopen(request, timeout=LAW_TIMEOUT_SECONDS) as response:
-            raw = response.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise RuntimeError(str(exc)) from exc
-    try:
-        return ET.fromstring(raw)
-    except ET.ParseError as exc:
-        raise RuntimeError("응답 XML을 해석할 수 없습니다.") from exc
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return False
+    return host == "law.go.kr" or host.endswith(".law.go.kr")
+
+
+def detect_bad_law_body(raw: bytes) -> str:
+    text = raw.decode("utf-8", errors="ignore").strip()
+    if not text:
+        return "빈 본문"
+    if re.match(r"^<!doctype html", text, re.IGNORECASE) or re.match(r"^<html[\s>]", text, re.IGNORECASE):
+        return "HTML 페이지"
+    return ""
+
+
+def mask_sensitive_url(value: str) -> str:
+    return re.sub(r"([?&](?:oc|OC|apikey|apiKey|api_key|authKey|auth_key|key)=)[^&\s]+", r"\1***", value)
+
+
+def sleep_before_law_retry(attempt: int) -> None:
+    delay = LAW_RETRY_DELAY_SECONDS * (2 ** attempt)
+    delay += random.random() * delay * 0.4
+    time.sleep(delay)
 
 
 def map_law_record(node: ET.Element, target: str) -> dict[str, str]:
     if target == "law":
         title = find_text(node, ["법령명한글", "법령명_한글"])
+        abbr = find_text(node, ["법령약칭명"])
         mst = find_text(node, ["법령일련번호", "MST"])
         law_id = find_text(node, ["법령ID"])
         effective_date = format_date(find_text(node, ["시행일자"]))
         promulgation_date = format_date(find_text(node, ["공포일자"]))
         ministry = find_text(node, ["소관부처명", "소관부처"])
+        status_code = find_text(node, ["현행연혁코드"])
+        law_type = find_text(node, ["법령구분명"])
         detail_link = normalize_detail_link(find_text(node, ["법령상세링크"]))
         return {
             "id": f"law-{mst or law_id or title}",
             "type": "법령",
             "title": title or "법령",
+            "abbr": abbr,
+            "statusCode": status_code,
             "sourceName": "국가법령정보센터",
             "officialUrl": detail_link or f"{LAW_BASE_URL}/LSW/lsInfoP.do?lsiSeq={mst}",
             "sourceDate": effective_date or promulgation_date,
             "documentNumber": law_id or mst,
-            "summary": " / ".join(part for part in [ministry, f"시행 {effective_date}" if effective_date else ""] if part),
+            "summary": " / ".join(part for part in [
+                law_type,
+                ministry,
+                status_code,
+                f"시행 {effective_date}" if effective_date else "",
+            ] if part),
         }
     if target == "prec":
         title = find_text(node, ["사건명"])
@@ -503,6 +967,41 @@ def map_law_record(node: ET.Element, target: str) -> dict[str, str]:
             "documentNumber": case_no or serial_no,
             "summary": " / ".join(part for part in [agency, tribunal, decision_date] if part),
         }
+    if target == "ordin":
+        title = find_text(node, ["자치법규명"])
+        serial_no = find_text(node, ["자치법규일련번호"])
+        agency = find_text(node, ["지자체기관명"])
+        promulgation_date = format_date(find_text(node, ["공포일자"]))
+        effective_date = format_date(find_text(node, ["시행일자"]))
+        detail_link = normalize_detail_link(find_text(node, ["자치법규상세링크"]))
+        return {
+            "id": f"ordin-{serial_no or title}",
+            "type": "조례",
+            "title": title or "자치법규",
+            "sourceName": agency or "국가법령정보센터",
+            "officialUrl": detail_link,
+            "sourceDate": effective_date or promulgation_date,
+            "documentNumber": serial_no,
+            "summary": " / ".join(part for part in [agency, f"시행 {effective_date}" if effective_date else ""] if part),
+        }
+    if target == "admrul":
+        title = find_text(node, ["행정규칙명"])
+        serial_no = find_text(node, ["행정규칙일련번호"])
+        rule_id = find_text(node, ["행정규칙ID"])
+        rule_type = find_text(node, ["행정규칙종류"])
+        ministry = find_text(node, ["소관부처명", "소관부처"])
+        promulgation_date = format_date(find_text(node, ["발령일자", "공포일자"]))
+        detail_link = normalize_detail_link(find_text(node, ["행정규칙상세링크"]))
+        return {
+            "id": f"admrul-{serial_no or rule_id or title}",
+            "type": "행정규칙",
+            "title": title or "행정규칙",
+            "sourceName": ministry or "국가법령정보센터",
+            "officialUrl": detail_link,
+            "sourceDate": promulgation_date,
+            "documentNumber": rule_id or serial_no,
+            "summary": " / ".join(part for part in [rule_type, ministry, f"발령 {promulgation_date}" if promulgation_date else ""] if part),
+        }
 
     title = find_text(node, ["안건명"])
     case_no = find_text(node, ["안건번호"])
@@ -521,6 +1020,34 @@ def map_law_record(node: ET.Element, target: str) -> dict[str, str]:
         "documentNumber": case_no or serial_no,
         "summary": " / ".join(part for part in [agency, query_agency, reply_date] if part),
     }
+
+
+def sort_law_results(results: list[dict[str, str]], query: str, target: str) -> list[dict[str, str]]:
+    if target != "law":
+        return sorted(results, key=lambda item: (
+            exact_title_rank(item, query),
+            item.get("sourceDate", ""),
+            item.get("title", ""),
+        ))
+    return sorted(results, key=lambda item: (
+        exact_title_rank(item, query),
+        1 if item.get("statusCode") == "연혁" else 0,
+        item.get("sourceDate", ""),
+        item.get("title", ""),
+    ))
+
+
+def exact_title_rank(item: dict[str, str], query: str) -> int:
+    query_key = normalize_alias_key(query)
+    canonical_key = normalize_alias_key(str(resolve_law_alias(query)["canonical"]))
+    title_key = normalize_alias_key(item.get("title", ""))
+    abbr_key = normalize_alias_key(item.get("abbr", ""))
+    keys = {query_key, canonical_key}
+    if title_key in keys or (abbr_key and abbr_key in keys):
+        return 0
+    if any(key and key in title_key for key in keys):
+        return 1
+    return 2
 
 
 def law_api_error_message(root: ET.Element) -> str:

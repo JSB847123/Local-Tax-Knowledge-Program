@@ -469,7 +469,7 @@ def ast_to_expression(ast: AstNode) -> str:
     if isinstance(ast, TermNode):
         return f'"{ast.value}"' if ast.phrase else ast.value
     if isinstance(ast, NotNode):
-        return f"NOT {wrap_expression(ast.child, parent="not")}"
+        return f"NOT {wrap_expression(ast.child, parent='not')}"
     if isinstance(ast, AndNode):
         return " AND ".join(wrap_expression(child, parent="and") for child in ast.children)
     if isinstance(ast, OrNode):
