@@ -17,7 +17,7 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urljoin, urlparse
 from xml.etree import ElementTree as ET
 
 from legal_query_parser import DEFAULT_SEARCH_FIELDS, parse_legal_query_to_elasticsearch_dsl
@@ -40,6 +40,46 @@ LAW_USER_AGENT = os.environ.get(
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 )
 LAW_REFERER = os.environ.get("LAW_REFERER", "https://www.law.go.kr/")
+AI_TIMEOUT_SECONDS = 45
+AI_MAX_CONTEXT_ITEMS = 12
+AI_MAX_PROMPT_CHARS = 26000
+AI_PROVIDER_CONFIG = {
+    "openai": {
+        "label": "OpenAI",
+        "key": "OPENAI_API_KEY",
+        "model_key": "OPENAI_MODEL",
+        "default_model": "gpt-4o-mini",
+        "models": ["gpt-5.5", "gpt-5.5-pro", "gpt-5.4-pro", "gpt-5.4-mini", "gpt-4o", "gpt-4o-mini"],
+        "endpoint": "https://api.openai.com/v1/chat/completions",
+        "compatible": True,
+    },
+    "gemini": {
+        "label": "Gemini",
+        "key": "GEMINI_API_KEY",
+        "model_key": "GEMINI_MODEL",
+        "default_model": "gemini-2.5-flash",
+        "models": ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        "compatible": False,
+    },
+    "deepseek": {
+        "label": "DeepSeek",
+        "key": "DEEPSEEK_API_KEY",
+        "model_key": "DEEPSEEK_MODEL",
+        "default_model": "deepseek-v4-flash",
+        "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+        "endpoint": "https://api.deepseek.com/chat/completions",
+        "compatible": True,
+    },
+    "zai": {
+        "label": "Z.ai",
+        "key": "ZAI_API_KEY",
+        "model_key": "ZAI_MODEL",
+        "default_model": "GLM-4.7-FlashX",
+        "models": ["GLM-5.2", "GLM-5.1", "GLM-5-Turbo", "GLM-5", "GLM-4.7", "GLM-4.7-FlashX"],
+        "endpoint": "https://api.z.ai/api/paas/v4/chat/completions",
+        "compatible": True,
+    },
+}
 
 BASIC_CHAR_TRANSLATION = str.maketrans({
     "벚": "법",
@@ -187,6 +227,9 @@ class TaxFlowHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/settings":
             self.handle_put_settings()
             return
+        if parsed.path == "/api/ai-search":
+            self.handle_ai_search()
+            return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_POST(self) -> None:
@@ -197,6 +240,9 @@ class TaxFlowHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/settings":
             self.handle_put_settings()
+            return
+        if parsed.path == "/api/ai-search":
+            self.handle_ai_search()
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
@@ -269,11 +315,26 @@ class TaxFlowHandler(BaseHTTPRequestHandler):
             return
 
         settings = read_runtime_settings()
-        law_oc = str(data.get("law_oc") or data.get("LAW_OC") or "").strip()
-        if law_oc:
-            settings["LAW_OC"] = law_oc
-        else:
-            settings.pop("LAW_OC", None)
+        if "law_oc" in data or "LAW_OC" in data:
+            law_oc = str(data.get("law_oc") or data.get("LAW_OC") or "").strip()
+            if law_oc:
+                settings["LAW_OC"] = law_oc
+            else:
+                settings.pop("LAW_OC", None)
+
+        ai_keys = data.get("ai_keys") if isinstance(data.get("ai_keys"), dict) else {}
+        ai_models = data.get("ai_models") if isinstance(data.get("ai_models"), dict) else {}
+        clear_ai_keys = data.get("clear_ai_keys") if isinstance(data.get("clear_ai_keys"), list) else []
+        for provider, config in AI_PROVIDER_CONFIG.items():
+            if provider in clear_ai_keys:
+                settings.pop(config["key"], None)
+            api_key = str(ai_keys.get(provider) or "").strip()
+            if api_key:
+                settings[config["key"]] = api_key
+            if provider in ai_models:
+                model = normalize_ai_model(provider, ai_models.get(provider) or "")
+                if model:
+                    settings[config["model_key"]] = model
         write_runtime_settings(settings)
         self.send_json({"ok": True, "settings": build_settings_status()})
 
@@ -320,6 +381,60 @@ class TaxFlowHandler(BaseHTTPRequestHandler):
                 "configured": True,
                 "message": f"국가법령정보 검색 실패: {exc}",
             })
+
+    def handle_ai_search(self) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid content length")
+            return
+
+        raw = self.rfile.read(length) if length > 0 else b"{}"
+        try:
+            data = json.loads(raw.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Request body must be JSON")
+            return
+
+        if not isinstance(data, dict):
+            self.send_error(HTTPStatus.BAD_REQUEST, "AI request must be a JSON object")
+            return
+
+        provider = str(data.get("provider") or "").strip().lower()
+        question = str(data.get("question") or "").strip()
+        if provider not in AI_PROVIDER_CONFIG:
+            self.send_json({"ok": False, "message": "지원하지 않는 AI provider입니다."}, HTTPStatus.BAD_REQUEST)
+            return
+        if not question:
+            self.send_json({"ok": False, "message": "질문을 입력하세요."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        settings = read_runtime_settings()
+        config = AI_PROVIDER_CONFIG[provider]
+        api_key = settings.get(config["key"], "").strip()
+        if not api_key:
+            self.send_json({"ok": False, "message": f"{config['label']} API key가 설정되지 않았습니다."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        model = normalize_ai_model(provider, data.get("model") or settings.get(config["model_key"]) or config["default_model"])
+        context_items = data.get("contextItems") if isinstance(data.get("contextItems"), list) else []
+        context_items = context_items[:AI_MAX_CONTEXT_ITEMS]
+        if not context_items:
+            self.send_json({"ok": False, "message": "AI에 전달할 매뉴얼 또는 파일이 없습니다."}, HTTPStatus.BAD_REQUEST)
+            return
+
+        tax_item_name = str(data.get("taxItemName") or "").strip()
+        try:
+            system_prompt, user_prompt = build_ai_prompts(question, context_items, tax_item_name)
+            if len(user_prompt) > AI_MAX_PROMPT_CHARS:
+                user_prompt = user_prompt[:AI_MAX_PROMPT_CHARS] + "\n\n...[근거 일부 생략]"
+            answer = call_ai_provider(provider, api_key, model, system_prompt, user_prompt)
+            self.send_json({"ok": True, "answer": answer, "provider": provider, "model": model})
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            self.send_json({"ok": False, "message": f"AI API 오류({exc.code}): {detail}"}, HTTPStatus.BAD_GATEWAY)
+        except Exception as exc:
+            self.send_json({"ok": False, "message": f"AI 검색 실패: {exc}"}, HTTPStatus.BAD_GATEWAY)
 
     def handle_legal_query_dsl(self, query_string: str) -> None:
         params = parse_qs(query_string)
@@ -414,14 +529,149 @@ def write_runtime_settings(settings: dict[str, str]) -> None:
 def build_settings_status() -> dict[str, object]:
     settings = read_runtime_settings()
     law_oc = settings.get("LAW_OC", "")
+    ai_providers = {}
+    for provider, config in AI_PROVIDER_CONFIG.items():
+        api_key = settings.get(config["key"], "")
+        ai_providers[provider] = {
+            "configured": bool(api_key),
+            "source": "file" if api_key else "missing",
+            "saved": bool(api_key),
+            "model": normalize_ai_model(provider, settings.get(config["model_key"], config["default_model"])),
+        }
     return {
         "law_oc": {
             "configured": bool(law_oc),
             "source": "file" if law_oc else "missing",
             "saved": bool(law_oc),
         },
+        "ai": {
+            "providers": ai_providers,
+        },
         "settingsFile": str(SETTINGS_FILE),
     }
+
+
+def normalize_ai_model(provider: str, model: object) -> str:
+    config = AI_PROVIDER_CONFIG.get(provider, {})
+    choices = config.get("models") or []
+    requested = str(model or "").strip()
+    if requested and requested in choices:
+        return requested
+    default_model = str(config.get("default_model") or "").strip()
+    if default_model in choices:
+        return default_model
+    return str(choices[0] if choices else default_model or requested)
+
+
+def build_ai_prompts(question: str, context_items: list[object], tax_item_name: str) -> tuple[str, str]:
+    system_prompt = (
+        "당신은 지방세 실무 지식베이스의 AI 검색 도우미입니다. "
+        "반드시 제공된 매뉴얼과 등록 파일 근거 안에서만 답변하세요. "
+        "근거가 부족하면 부족하다고 말하고 추가로 확인할 자료를 제안하세요. "
+        "답변은 한국어로, 실무자가 바로 검토할 수 있게 핵심 판단, 근거, 주의사항 순서로 정리하세요. "
+        "가능하면 문장 끝에 [M1], [F1] 같은 근거 표시를 붙이세요. "
+        "최종 법적 판단은 담당자가 원문과 내부 절차로 확인해야 한다는 점을 유지하세요."
+    )
+    blocks: list[str] = []
+    for item in context_items:
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("ref") or "").strip()
+        title = str(item.get("title") or "").strip()
+        kind_label = str(item.get("kindLabel") or "").strip()
+        category = str(item.get("categoryPath") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        header = " / ".join(part for part in [ref, kind_label, title, category] if part)
+        blocks.append(f"### {header}\n{content}")
+
+    context_text = "\n\n".join(blocks)
+    tax_line = f"현재 세목: {tax_item_name}\n" if tax_item_name else ""
+    user_prompt = (
+        f"{tax_line}질문: {question}\n\n"
+        "아래 근거만 사용해서 답변하세요.\n\n"
+        f"{context_text}"
+    )
+    return system_prompt, user_prompt
+
+
+def call_ai_provider(provider: str, api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    if provider == "gemini":
+        return call_gemini(api_key, model, system_prompt, user_prompt)
+    return call_openai_compatible(provider, api_key, model, system_prompt, user_prompt)
+
+
+def call_openai_compatible(provider: str, api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    config = AI_PROVIDER_CONFIG[provider]
+    payload = {
+        "model": model or config["default_model"],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1800,
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        str(config["endpoint"]),
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": LAW_USER_AGENT,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
+        raw = response.read().decode("utf-8")
+    parsed = json.loads(raw)
+    try:
+        return str(parsed["choices"][0]["message"]["content"]).strip()
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError("AI 응답 형식을 해석하지 못했습니다.")
+
+
+def call_gemini(api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+    selected_model = model or AI_PROVIDER_CONFIG["gemini"]["default_model"]
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{quote(selected_model, safe='')}:generateContent?key={quote(api_key, safe='')}"
+    )
+    payload = {
+        "systemInstruction": {
+            "parts": [{"text": system_prompt}],
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": user_prompt}],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1800,
+        },
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": LAW_USER_AGENT,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
+        raw = response.read().decode("utf-8")
+    parsed = json.loads(raw)
+    parts = parsed.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    answer = "\n".join(str(part.get("text", "")) for part in parts if isinstance(part, dict)).strip()
+    if not answer:
+        raise RuntimeError("Gemini 응답 형식을 해석하지 못했습니다.")
+    return answer
 
 
 def parse_es_fields(params: dict[str, list[str]]) -> tuple[str, ...]:

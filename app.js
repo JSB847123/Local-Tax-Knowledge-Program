@@ -2,14 +2,25 @@
 
 const STORAGE_KEY = "taxflow.mvp.v1";
 const MAX_CATEGORY_DEPTH = 3;
+const THEORY_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const THEORY_FILE_STORAGE_REFERENCE_BYTES = 5 * 1024 * 1024;
 const SERVER_DATA_ENDPOINT = "/api/data";
 const SERVER_SETTINGS_ENDPOINT = "/api/settings";
 const SERVER_LEGAL_SEARCH_ENDPOINT = "/api/legal-search";
+const SERVER_AI_SEARCH_ENDPOINT = "/api/ai-search";
+const AI_CONTEXT_MAX_ITEMS = 10;
+const AI_CONTEXT_MAX_CHARS = 22000;
+const AI_CONTEXT_ITEM_MAX_CHARS = 3200;
+const BACKUP_FORMAT = "tax-flow-portable-backup";
+const BACKUP_VERSION = 1;
 
 const viewLabels = {
   legal: "법령 및 판례 검색",
   favorites: "즐겨찾기",
-  manuals: "매뉴얼 작성"
+  theoryFiles: "이론 등 파일 등록",
+  manuals: "매뉴얼 작성",
+  aiSearch: "AI 검색",
+  backup: "데이터 백업/복원"
 };
 
 const sourceTypes = ["법령", "시행령", "조례", "행정규칙", "판례", "행정해석", "조세심판", "감사원", "내부문서"];
@@ -77,6 +88,88 @@ const riskLabels = {
   normal: "보통",
   high: "높음"
 };
+const theoryFileTypeLabels = {
+  markdown: "Markdown",
+  txt: "TXT"
+};
+const theoryFileAccept = ".md,.markdown,.txt,text/markdown,text/x-markdown,text/plain";
+const aiProviderLabels = {
+  openai: "OpenAI",
+  gemini: "Gemini",
+  deepseek: "DeepSeek",
+  zai: "Z.ai"
+};
+const aiDefaultModels = {
+  openai: "gpt-4o-mini",
+  gemini: "gemini-2.5-flash",
+  deepseek: "deepseek-v4-flash",
+  zai: "GLM-4.7-FlashX"
+};
+const aiModelOptions = {
+  openai: [
+    "gpt-5.5",
+    "gpt-5.5-pro",
+    "gpt-5.4-pro",
+    "gpt-5.4-mini",
+    "gpt-4o",
+    "gpt-4o-mini"
+  ],
+  gemini: [
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+  ],
+  deepseek: [
+    "deepseek-v4-pro",
+    "deepseek-v4-flash"
+  ],
+  zai: [
+    "GLM-5.2",
+    "GLM-5.1",
+    "GLM-5-Turbo",
+    "GLM-5",
+    "GLM-4.7",
+    "GLM-4.7-FlashX"
+  ]
+};
+const manualSidebarTaxItems = [
+  { taxItemId: "tax-acquisition", label: "취득세", children: [] },
+  { taxItemId: "tax-property", label: "재산세", children: [] },
+  {
+    taxItemId: "tax-local-income",
+    label: "지방소득세",
+    children: [
+      { categoryId: "cat-local-income-personal", label: "종합소득분" },
+      { categoryId: "cat-local-income-transfer", label: "양도소득분" },
+      { categoryId: "cat-local-income-corporate", label: "법인" }
+    ]
+  },
+  {
+    taxItemId: "tax-resident",
+    label: "주민세",
+    children: [
+      { categoryId: "cat-resident-individual", label: "개인분" },
+      { categoryId: "cat-resident-employee", label: "종업원분" },
+      { categoryId: "cat-resident-business", label: "사업소분" }
+    ]
+  }
+];
+const requiredManualCategories = [
+  { id: "cat-local-income-personal", taxItemId: "tax-local-income", name: "종합소득분", description: "종합소득분 지방소득세 신고·부과 업무", sortOrder: 1 },
+  { id: "cat-local-income-transfer", taxItemId: "tax-local-income", name: "양도소득분", description: "양도소득분 지방소득세 신고·부과 업무", sortOrder: 2 },
+  { id: "cat-local-income-corporate", taxItemId: "tax-local-income", name: "법인", description: "법인지방소득세 신고·납부와 안분 검토", sortOrder: 3 },
+  { id: "cat-resident-individual", taxItemId: "tax-resident", name: "개인분", description: "개인분 주민세 부과·감면", sortOrder: 1 },
+  { id: "cat-resident-employee", taxItemId: "tax-resident", name: "종업원분", description: "종업원분 과세표준과 신고", sortOrder: 2 },
+  { id: "cat-resident-business", taxItemId: "tax-resident", name: "사업소분", description: "사업소분 신고·납부와 과세대상", sortOrder: 3 }
+];
+const HANGUL_BASE_CODE = 0xac00;
+const HANGUL_END_CODE = 0xd7a3;
+const HANGUL_INITIALS = [
+  "ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ",
+  "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"
+];
 
 const app = {
   data: null,
@@ -100,12 +193,21 @@ const app = {
     settingsLoading: false,
     settingsMessage: "",
     settingsError: "",
+    aiProvider: "openai",
+    aiQuestion: "",
+    aiAnswer: "",
+    aiReferences: [],
+    aiLoading: false,
+    aiError: "",
+    aiModelOverride: "",
     listFilter: "",
     bulkPreview: null,
     bulkFileName: "",
     bulkRawText: "",
     bulkError: "",
     bulkResult: null,
+    editingSourceTagsId: "",
+    storageWarning: "",
     modal: null,
     toast: ""
   }
@@ -139,6 +241,8 @@ function bindEvents() {
   document.addEventListener("submit", onSubmit);
   document.addEventListener("input", onInput);
   document.addEventListener("change", onChange);
+  document.addEventListener("compositionstart", onCompositionStart);
+  document.addEventListener("compositionend", onCompositionEnd);
   document.addEventListener("dragstart", onDragStart);
   document.addEventListener("dragover", onDragOver);
   document.addEventListener("dragleave", onDragLeave);
@@ -159,6 +263,12 @@ function onClick(event) {
   }
   if (action === "set-tax-item") {
     setCurrentTaxItem(id);
+  }
+  if (action === "set-manual-tax") {
+    setManualScope(id, "");
+  }
+  if (action === "set-manual-category") {
+    setManualScope(actionEl.dataset.taxId || "", id);
   }
   if (action === "set-category") {
     app.state.selectedCategoryId = id;
@@ -197,6 +307,14 @@ function onClick(event) {
   }
   if (action === "toggle-favorite") {
     toggleFavorite(type, id);
+  }
+  if (action === "edit-source-tags") {
+    app.state.editingSourceTagsId = id;
+    render();
+  }
+  if (action === "cancel-source-tags") {
+    app.state.editingSourceTagsId = "";
+    render();
   }
   if (action === "duplicate-note") {
     duplicateNote(id);
@@ -240,6 +358,12 @@ function onClick(event) {
   if (action === "refresh-settings") {
     loadRuntimeSettings(true);
   }
+  if (action === "clear-ai-answer") {
+    app.state.aiAnswer = "";
+    app.state.aiReferences = [];
+    app.state.aiError = "";
+    render();
+  }
 }
 
 function onSubmit(event) {
@@ -252,14 +376,18 @@ function onSubmit(event) {
 
   if (formType === "category") saveCategory(values);
   if (formType === "source") saveSourceDocument(values);
+  if (formType === "source-tags") saveSourceTags(values);
   if (formType === "note") saveNote(values);
   if (formType === "manual") saveManual(values);
   if (formType === "flow") saveFlow(values);
+  if (formType === "theory-file") saveTheoryFile(values);
   if (formType === "legal-search") runLegalSearch(values);
   if (formType === "tax-item") saveTaxItem(values);
   if (formType === "import-data") importData(values);
   if (formType === "qa") submitQaQuestion(values);
   if (formType === "settings") saveRuntimeSettings(values);
+  if (formType === "ai-settings") saveAiSettings(values);
+  if (formType === "ai-search") runAiSearch(values);
 }
 
 function onInput(event) {
@@ -269,11 +397,18 @@ function onInput(event) {
   }
   if (input.matches("[data-bind='listFilter']")) {
     app.state.listFilter = input.value;
-    render();
+    if (event.isComposing || input.dataset.composing === "true") return;
+    render({ restoreFocus: captureInputFocus(input) });
   }
   if (input.matches("[data-bind='qaDraft']")) {
     app.data.qa.draft = input.value;
     saveData();
+  }
+  if (input.matches("[data-bind='aiQuestion']")) {
+    app.state.aiQuestion = input.value;
+  }
+  if (input.matches("[data-bind='aiModelOverride']")) {
+    app.state.aiModelOverride = input.value;
   }
 }
 
@@ -290,9 +425,32 @@ function onChange(event) {
     saveData();
     render();
   }
+  if (input.matches("[data-bind='aiProvider']")) {
+    app.state.aiProvider = input.value;
+    app.state.aiModelOverride = "";
+    render();
+  }
+  if (input.matches("[data-bind='aiModelOverride']")) {
+    app.state.aiModelOverride = input.value;
+  }
   if (input.matches("[data-action='bulk-file']")) {
     handleBulkFileChange(input);
   }
+}
+
+function onCompositionStart(event) {
+  const input = event.target;
+  if (input.matches("[data-bind='listFilter']")) {
+    input.dataset.composing = "true";
+  }
+}
+
+function onCompositionEnd(event) {
+  const input = event.target;
+  if (!input.matches("[data-bind='listFilter']")) return;
+  input.dataset.composing = "";
+  app.state.listFilter = input.value;
+  render({ restoreFocus: captureInputFocus(input) });
 }
 
 function onDragStart(event) {
@@ -324,7 +482,7 @@ function onDrop(event) {
   reorderCategoryByDrop(draggedId, targetId);
 }
 
-function render() {
+function render(options = {}) {
   persistUi();
   const root = document.getElementById("app");
   root.innerHTML = `
@@ -340,14 +498,39 @@ function render() {
     ${renderModal()}
     ${renderToast()}
   `;
+  restoreInputFocus(options.restoreFocus);
+}
+
+function captureInputFocus(input) {
+  return {
+    bind: input.dataset.bind || "",
+    selectionStart: input.selectionStart,
+    selectionEnd: input.selectionEnd
+  };
+}
+
+function restoreInputFocus(focus) {
+  if (!focus?.bind) return;
+  const escapedBind = globalThis.CSS?.escape ? CSS.escape(focus.bind) : focus.bind.replace(/["\\]/g, "\\$&");
+  const input = document.querySelector(`[data-bind="${escapedBind}"]`);
+  if (!input) return;
+  input.focus({ preventScroll: true });
+  if (typeof input.setSelectionRange === "function") {
+    const fallback = input.value.length;
+    const start = Number.isInteger(focus.selectionStart) ? focus.selectionStart : fallback;
+    const end = Number.isInteger(focus.selectionEnd) ? focus.selectionEnd : start;
+    input.setSelectionRange(start, end);
+  }
 }
 
 function renderSidebar() {
-  const taxItems = activeTaxItems();
   const nav = [
     ["legal", "법령 및 판례 검색", "원문 검색"],
     ["favorites", "즐겨찾기", "별표한 원문"],
-    ["manuals", "매뉴얼 작성", "이론 · 관련 법령 · 전산 작업"]
+    ["theoryFiles", "이론 등 파일 등록", `Markdown·TXT · 최대 ${formatBytes(THEORY_FILE_MAX_BYTES)}`],
+    ["manuals", "매뉴얼 작성", "이론 · 관련 법령 · 전산 작업"],
+    ["aiSearch", "AI 검색", "매뉴얼 · 등록 파일 기반 답변"],
+    ["backup", "데이터 백업/복원", "다른 PC로 이동"]
   ];
 
   return `
@@ -363,19 +546,6 @@ function renderSidebar() {
       </div>
 
       <section class="side-section">
-        <div class="side-heading"><span>세목 워크스페이스</span><span>${taxItems.length}</span></div>
-        <ul class="tax-list">
-          ${taxItems.map(item => `
-            <li>
-              <button class="tax-button ${item.id === app.state.currentTaxItemId ? "active" : ""}" data-action="set-tax-item" data-id="${item.id}">
-                <span class="tax-name">${escapeHtml(item.name)}</span>
-              </button>
-            </li>
-          `).join("")}
-        </ul>
-      </section>
-
-      <section class="side-section">
         <div class="side-heading"><span>업무 메뉴</span></div>
         <ul class="nav-list">
           ${nav.map(([id, label, sub]) => `
@@ -383,6 +553,7 @@ function renderSidebar() {
               <button class="nav-button ${app.state.activeView === id ? "active" : ""}" data-action="set-view" data-value="${id}">
                 <span class="nav-name">${label}<br><small>${sub}</small></span>
               </button>
+              ${id === "manuals" ? renderManualSidebarTree() : ""}
             </li>
           `).join("")}
         </ul>
@@ -391,12 +562,49 @@ function renderSidebar() {
   `;
 }
 
+function renderManualSidebarTree() {
+  return `
+    <ul class="manual-tree">
+      ${manualSidebarTaxItems.map(item => renderManualSidebarTaxItem(item)).join("")}
+    </ul>
+  `;
+}
+
+function renderManualSidebarTaxItem(item) {
+  const isActiveTax = app.state.activeView === "manuals" && app.state.currentTaxItemId === item.taxItemId;
+  return `
+    <li>
+      <button class="manual-tree-button ${isActiveTax ? "active" : ""}" data-action="set-manual-tax" data-id="${escapeAttr(item.taxItemId)}">
+        <span>${escapeHtml(item.label)}</span>
+      </button>
+      ${item.children.length ? `
+        <ul>
+          ${item.children.map(child => renderManualSidebarCategoryItem(item.taxItemId, child)).join("")}
+        </ul>
+      ` : ""}
+    </li>
+  `;
+}
+
+function renderManualSidebarCategoryItem(taxItemId, item) {
+  const isActive = app.state.activeView === "manuals"
+    && app.state.currentTaxItemId === taxItemId
+    && app.state.selectedCategoryId === item.categoryId;
+  return `
+    <li>
+      <button class="manual-tree-button child ${isActive ? "active" : ""}" data-action="set-manual-category" data-tax-id="${escapeAttr(taxItemId)}" data-id="${escapeAttr(item.categoryId)}">
+        <span>${escapeHtml(item.label)}</span>
+      </button>
+    </li>
+  `;
+}
+
 function renderTopbar() {
   return `
     <header class="topbar">
       <div>
         <strong>${escapeHtml(currentTaxItem()?.name || "세목")}</strong>
-        <p class="description">법령 근거를 찾고, 실무 매뉴얼을 3파트로 정리합니다.</p>
+        <p class="description">법령 근거를 찾고, 실무 매뉴얼을 파트별로 정리합니다.</p>
       </div>
       <div class="toolbar">
         <button class="btn" data-action="set-view" data-value="legal">법령 검색</button>
@@ -411,7 +619,10 @@ function renderActiveView() {
   const view = app.state.activeView;
   if (view === "legal") return renderLegalView();
   if (view === "favorites") return renderFavoritesView();
+  if (view === "theoryFiles") return renderTheoryFilesView();
   if (view === "manuals") return renderManualsView();
+  if (view === "aiSearch") return renderAiSearchView();
+  if (view === "backup") return renderBackupView();
   return renderLegalView();
 }
 
@@ -858,6 +1069,7 @@ function renderOfficialResult(result) {
 
 function renderSourceCard(source) {
   const selected = app.state.selectedSourceId === source.id;
+  const canEditTags = app.state.activeView === "favorites";
   return `
     <article class="item-card ${selected ? "selected" : ""}">
       <div class="item-head">
@@ -871,24 +1083,45 @@ function renderSourceCard(source) {
         </div>
         <div class="toolbar">
           <button class="btn icon small" data-action="toggle-favorite" data-type="source" data-id="${source.id}" title="즐겨찾기">${source.favorite ? "★" : "☆"}</button>
+          ${canEditTags ? `<button class="btn small" data-action="edit-source-tags" data-id="${escapeAttr(source.id)}">태그 편집</button>` : ""}
           ${source.officialUrl ? `<a class="btn small" href="${escapeAttr(source.officialUrl)}" target="_blank" rel="noreferrer">열기</a>` : `<button class="btn small" data-action="select-source" data-id="${source.id}">보기</button>`}
         </div>
       </div>
       <p class="item-summary">${escapeHtml(source.summary || "")}</p>
-      <div class="item-meta">
-        ${renderTags(source.tags)}
-      </div>
+      ${renderSourceTagArea(source)}
     </article>
+  `;
+}
+
+function renderSourceTagArea(source) {
+  const isEditing = app.state.activeView === "favorites" && app.state.editingSourceTagsId === source.id;
+  if (isEditing) return renderSourceTagEditor(source);
+  const emptyText = app.state.activeView === "favorites" ? `<span>태그 없음</span>` : "";
+  return `
+    <div class="item-meta source-tags">
+      ${renderTags(source.tags) || emptyText}
+    </div>
+  `;
+}
+
+function renderSourceTagEditor(source) {
+  return `
+    <form data-form="source-tags" class="tag-editor">
+      <input type="hidden" name="id" value="${escapeAttr(source.id)}" />
+      <label for="sourceTags-${escapeAttr(source.id)}">태그</label>
+      <input id="sourceTags-${escapeAttr(source.id)}" name="tags" class="control" value="${escapeAttr((source.tags || []).join(", "))}" placeholder="쉼표 또는 #으로 구분" />
+      <div class="toolbar">
+        <button class="btn small" type="button" data-action="cancel-source-tags">취소</button>
+        <button class="btn primary small" type="submit">저장</button>
+      </div>
+    </form>
   `;
 }
 
 function renderFavoritesView() {
   const favorites = app.data.sourceDocuments
     .filter(source => source.taxItemId === app.state.currentTaxItemId && source.favorite)
-    .filter(source => {
-      const q = normalize(app.state.listFilter);
-      return !q || normalize([source.title, source.type, source.sourceName, source.summary, source.documentNumber, ...(source.tags || [])].join(" ")).includes(q);
-    })
+    .filter(source => textMatchesSearch(searchBlob(source), app.state.listFilter))
     .sort(sortUpdated);
   return `
     ${renderHeader(
@@ -910,6 +1143,262 @@ function renderFavoritesView() {
         </div>
       </div>
     </section>
+  `;
+}
+
+function renderTheoryFilesView() {
+  const files = filteredTheoryFiles();
+  return `
+    ${renderHeader(
+      "이론 등 파일 등록",
+      "이론 자료, 내부 검토 문서, 참고 텍스트 파일을 세목별로 보관합니다.",
+      ""
+    )}
+    <div class="grid two">
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>파일 등록</h2>
+            <small>파일당 최대 ${formatBytes(THEORY_FILE_MAX_BYTES)}</small>
+          </div>
+        </div>
+        <div class="panel-body">
+          <form data-form="theory-file" class="form-grid">
+            <input type="hidden" name="taxItemId" value="${escapeAttr(app.state.currentTaxItemId)}" />
+            <div class="field">
+              <label for="theoryFileTitle">자료 제목</label>
+              <input id="theoryFileTitle" name="title" class="control" placeholder="비워두면 파일명을 사용" />
+            </div>
+            <div class="field">
+              <label for="theoryFileCategory">하위카테고리</label>
+              <select id="theoryFileCategory" name="categoryId" class="control">
+                <option value="">미분류</option>
+                ${categoryOptions(app.state.currentTaxItemId, "", app.state.selectedCategoryId)}
+              </select>
+            </div>
+            <div class="field full">
+              <label class="upload-box">
+                <span class="eyebrow">Markdown · TXT</span>
+                <strong>텍스트 파일을 선택해 이론 자료로 등록합니다.</strong>
+                <span>업로드 가능 용량: 파일당 최대 ${formatBytes(THEORY_FILE_MAX_BYTES)}. 서버에는 별도 하드 제한이 없지만, 브라우저 저장소 안전 기준 약 ${formatBytes(THEORY_FILE_STORAGE_REFERENCE_BYTES)}를 고려해 제한합니다.</span>
+                <span>텍스트 기반 파일만 등록할 수 있습니다.</span>
+                <input type="file" name="file" accept="${escapeAttr(theoryFileAccept)}" required />
+              </label>
+            </div>
+            <div class="field full">
+              <label for="theoryFileTags">태그</label>
+              <input id="theoryFileTags" name="tags" class="control" placeholder="쉼표 또는 #으로 구분" />
+            </div>
+            <div class="field full">
+              <label for="theoryFileMemo">메모</label>
+              <textarea id="theoryFileMemo" name="memo" placeholder="핵심 이론, 검토 포인트, 파일 활용 메모를 적어두세요."></textarea>
+            </div>
+            <div class="field full form-actions">
+              <button class="btn primary" type="submit">파일 등록</button>
+            </div>
+          </form>
+          ${app.state.storageWarning ? `<div class="item-card warning-card">${escapeHtml(app.state.storageWarning)}</div>` : ""}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>등록 안내</h2>
+            <small>지원 파일과 저장 방식</small>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="file-guide">
+            <div><strong>Markdown</strong><span>이론 정리, 체크리스트, 내부 검토 내용을 구조화해 저장하기 좋습니다.</span></div>
+            <div><strong>TXT</strong><span>원본 파일과 본문 텍스트를 함께 저장해 검색에 활용합니다.</span></div>
+            <div><strong>용량</strong><span>현재 앱 제한은 파일당 ${formatBytes(THEORY_FILE_MAX_BYTES)}입니다.</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:16px;">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>등록된 파일</h2>
+          <small>${files.length}개</small>
+        </div>
+        <input class="control" data-bind="listFilter" value="${escapeAttr(app.state.listFilter)}" placeholder="파일 필터" style="max-width:240px;" />
+      </div>
+      <div class="panel-body">
+        <div class="item-list">
+          ${files.length ? files.map(renderTheoryFileCard).join("") : renderEmpty("등록된 파일이 없습니다. Markdown 또는 TXT 파일을 추가하세요.")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderTheoryFileCard(file) {
+  const typeLabel = theoryFileTypeLabels[file.fileKind] || file.fileKind || "파일";
+  return `
+    <article class="item-card">
+      <div class="item-head">
+        <div>
+          <p class="item-title">${escapeHtml(file.title)}</p>
+          <div class="item-meta">
+            <span class="type-pill">${escapeHtml(typeLabel)}</span>
+            <span>${escapeHtml(file.fileName || "")}</span>
+            <span>${formatBytes(file.fileSize || 0)}</span>
+            ${file.categoryId ? `<span>${escapeHtml(categoryPath(file.categoryId))}</span>` : ""}
+            <span>등록 ${formatDate(file.createdAt)}</span>
+          </div>
+        </div>
+        <div class="toolbar">
+          ${file.dataUrl ? `<a class="btn small" href="${escapeAttr(file.dataUrl)}" download="${escapeAttr(file.fileName || file.title)}">다운로드</a>` : ""}
+          <button class="btn danger small" data-action="delete-item" data-type="theoryFile" data-id="${escapeAttr(file.id)}">삭제</button>
+        </div>
+      </div>
+      ${file.memo ? `<p class="item-summary">${escapeHtml(trimText(file.memo, 180))}</p>` : ""}
+      ${file.contentText ? `<div class="file-text-preview">${escapeHtml(trimText(file.contentText, 260))}</div>` : ""}
+      <div class="item-meta">${renderTags(file.tags)}</div>
+    </article>
+  `;
+}
+
+function renderAiSearchView() {
+  const provider = app.state.aiProvider || "openai";
+  const context = buildAiSearchContext(app.state.aiQuestion);
+  const providerStatus = aiProviderStatus(provider);
+  const model = normalizeAiModel(provider, app.state.aiModelOverride || providerStatus.model);
+  return `
+    ${renderHeader(
+      "AI 검색",
+      "작성한 매뉴얼과 등록한 Markdown·TXT 파일을 근거로 질문에 답합니다.",
+      `<button class="btn" data-action="refresh-settings">API key 상태 새로고침</button>`
+    )}
+    <div class="grid two">
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>질문</h2>
+            <small>현재 세목 기준 · 매뉴얼 ${context.manualCount}개 · 파일 ${context.fileCount}개</small>
+          </div>
+          ${app.state.aiAnswer ? `<button class="btn small" data-action="clear-ai-answer">답변 지우기</button>` : ""}
+        </div>
+        <div class="panel-body">
+          <form data-form="ai-search" class="form-grid">
+            <div class="field">
+              <label for="aiProvider">AI provider</label>
+              <select id="aiProvider" name="provider" class="control" data-bind="aiProvider">
+                ${Object.entries(aiProviderLabels).map(([id, label]) => `<option value="${id}" ${provider === id ? "selected" : ""}>${label}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label for="aiModel">모델</label>
+              <select id="aiModel" name="model" class="control" data-bind="aiModelOverride">
+                ${renderAiModelOptions(provider, model)}
+              </select>
+            </div>
+            <div class="field full">
+              <label for="aiQuestion">질문</label>
+              <textarea id="aiQuestion" name="question" data-bind="aiQuestion" style="min-height:160px;" placeholder="예: 주민세 사업소분 연면적 판단 시 태양광 발전 설비를 어떻게 봐야 해?">${escapeHtml(app.state.aiQuestion)}</textarea>
+            </div>
+            <div class="field full">
+              <div class="item-card">
+                <div class="item-head">
+                  <div>
+                    <p class="item-title">검색 근거</p>
+                    <p class="item-summary">현재 세목의 매뉴얼과 등록 파일 중 질문과 가까운 항목을 최대 ${AI_CONTEXT_MAX_ITEMS}개까지 AI에 전달합니다.</p>
+                  </div>
+                  <span class="state-pill">${context.items.length}개 선택</span>
+                </div>
+                <div class="item-meta" style="margin-top:10px;">
+                  ${context.items.length ? context.items.map(item => `<span>${escapeHtml(item.ref)} ${escapeHtml(trimText(item.title, 34))}</span>`).join("") : `<span>전달할 매뉴얼 또는 파일이 없습니다.</span>`}
+                </div>
+              </div>
+            </div>
+            <div class="field full form-actions">
+              <button class="btn primary" type="submit" ${app.state.aiLoading || !context.items.length ? "disabled" : ""}>${app.state.aiLoading ? "답변 생성 중..." : "AI에게 질문"}</button>
+            </div>
+          </form>
+          ${app.state.aiError ? `<div class="item-card warning-card">${escapeHtml(app.state.aiError)}</div>` : ""}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>API key 설정</h2>
+            <small>${escapeHtml(app.state.settingsStatus?.settingsFile || "로컬 설정 파일")}</small>
+          </div>
+        </div>
+        <div class="panel-body">
+          ${renderAiSettingsForm()}
+        </div>
+      </section>
+    </div>
+
+    <section class="panel" style="margin-top:16px;">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>AI 답변</h2>
+          <small>${app.state.aiReferences.length ? `근거 ${app.state.aiReferences.length}개` : "답변 대기"}</small>
+        </div>
+      </div>
+      <div class="panel-body">
+        ${app.state.aiAnswer ? `
+          <div class="ai-answer markdown-preview">${escapeHtml(app.state.aiAnswer)}</div>
+          <div class="reference-list">
+            ${app.state.aiReferences.map(item => `
+              <div class="item-card">
+                <div class="item-head">
+                  <div>
+                    <p class="item-title">${escapeHtml(item.ref)} ${escapeHtml(item.title)}</p>
+                    <p class="item-summary">${escapeHtml(item.kindLabel)} · ${escapeHtml(item.categoryPath || "미분류")}</p>
+                  </div>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        ` : renderEmpty("질문을 입력하면 매뉴얼과 등록 파일을 근거로 답변을 생성합니다.")}
+      </div>
+    </section>
+  `;
+}
+
+function renderAiSettingsForm() {
+  return `
+    <form data-form="ai-settings" class="form-grid">
+      ${Object.entries(aiProviderLabels).map(([id, label]) => {
+        const status = aiProviderStatus(id);
+        return `
+          <div class="field full api-key-row">
+            <div class="item-head">
+              <div>
+                <label for="aiKey-${id}">${escapeHtml(label)} API key</label>
+                <p class="description">비워두면 기존 키를 유지합니다. 저장 후 키 원문은 다시 표시하지 않습니다.</p>
+              </div>
+              <span class="state-pill ${status.configured ? "" : "warning"}">${status.configured ? "설정됨" : "미설정"}</span>
+            </div>
+            <input id="aiKey-${id}" name="${id}Key" class="control" type="password" autocomplete="off" placeholder="${status.configured ? "새 키 입력 또는 해제 체크" : `${label} API key`}" />
+            <div class="form-grid api-model-grid">
+              <div class="field">
+                <label for="aiModel-${id}">기본 모델</label>
+                <select id="aiModel-${id}" name="${id}Model" class="control">
+                  ${renderAiModelOptions(id, status.model)}
+                </select>
+              </div>
+              <label class="check-row">
+                <input type="checkbox" name="clear${capitalizeProviderId(id)}Key" value="1" />
+                <span>저장된 키 해제</span>
+              </label>
+            </div>
+          </div>
+        `;
+      }).join("")}
+      <div class="field full form-actions">
+        <button class="btn primary" type="submit">API key 저장</button>
+      </div>
+      ${app.state.settingsMessage ? `<p class="description" style="color:var(--accent-strong);">${escapeHtml(app.state.settingsMessage)}</p>` : ""}
+      ${app.state.settingsError ? `<p class="description" style="color:var(--red);">${escapeHtml(app.state.settingsError)}</p>` : ""}
+    </form>
   `;
 }
 
@@ -1011,13 +1500,16 @@ function renderNoteDetail(note) {
 
 function renderManualsView() {
   const manuals = filteredManuals();
-  const selected = app.data.manuals.find(manual => manual.id === app.state.selectedManualId) || manuals[0];
+  const selected = manuals.find(manual => manual.id === app.state.selectedManualId) || manuals[0];
   if (selected && app.state.selectedManualId !== selected.id) app.state.selectedManualId = selected.id;
+  const emptyMessage = app.state.listFilter.trim()
+    ? "필터와 일치하는 매뉴얼이 없습니다."
+    : "등록된 매뉴얼이 없습니다.";
 
   return `
     ${renderHeader(
       "매뉴얼 작성",
-      "업무 판단을 이론, 관련 법령, 전산 작업 3파트로 단순하게 정리합니다.",
+      "업무 판단을 이론, 관련 법령, 관련 판례, 전산 작업으로 단순하게 정리합니다.",
       `<button class="btn primary" data-action="open-modal" data-type="manual">매뉴얼 작성</button>`
     )}
     <div class="split-view">
@@ -1028,7 +1520,7 @@ function renderManualsView() {
         </div>
         <div class="panel-body tight">
           <div class="item-list">
-            ${manuals.length ? manuals.map(renderManualCard).join("") : renderEmpty("등록된 매뉴얼이 없습니다.")}
+            ${manuals.length ? manuals.map(renderManualCard).join("") : renderEmpty(emptyMessage)}
           </div>
         </div>
       </section>
@@ -1050,7 +1542,9 @@ function renderManualCard(manual) {
           <div class="item-meta">
             <span>이론</span>
             <span>관련 법령</span>
+            <span>관련 판례</span>
             <span>전산 작업</span>
+            ${manual.categoryId ? `<span>${escapeHtml(categoryPath(manual.categoryId))}</span>` : ""}
           </div>
         </div>
         <div class="toolbar">
@@ -1072,7 +1566,7 @@ function renderManualDetail(manual) {
     <div class="panel-header">
       <div class="panel-title">
         <h2>${escapeHtml(manual.title)}</h2>
-        <small>이론 · 관련 법령 · 전산 작업</small>
+        <small>${escapeHtml(categoryPath(manual.categoryId) || "미분류")} · 이론 · 관련 법령 · 관련 판례 · 전산 작업</small>
       </div>
       <div class="toolbar">
         <button class="btn" data-action="open-modal" data-type="manual" data-id="${manual.id}">수정</button>
@@ -1083,7 +1577,8 @@ function renderManualDetail(manual) {
       <div class="item-meta"><span>수정 ${formatDate(manual.updatedAt)}</span></div>
       <div class="grid" style="margin-top:14px;">
         ${renderManualPart("이론", manualTheoryText(manual), "판단 기준과 업무 원리를 정리하세요.")}
-        ${renderManualPart("관련 법령", manualRelatedLawText(manual), "관련 조문, 판례, 해석례를 정리하세요.")}
+        ${renderManualPart("관련 법령", manualRelatedLawText(manual), "관련 조문, 법령, 해석례를 정리하세요.")}
+        ${renderManualPart("관련 판례", manualRelatedPrecedentText(manual), "관련 판례, 결정례, 사건번호와 판단 요지를 정리하세요.")}
         ${renderManualPart("전산 작업", manualSystemWorkText(manual), "시스템 메뉴, 입력값, 확인 절차를 정리하세요.")}
       </div>
 
@@ -1118,19 +1613,38 @@ function manualTheoryText(manual) {
 
 function manualRelatedLawText(manual) {
   if (manual.relatedLaw) return manual.relatedLaw;
+  const sources = linkedManualSources(manual).filter(source => !isPrecedentSource(source));
+  if (!sources.length) return "";
+  return sources.map(formatManualSource).join("\n\n");
+}
+
+function manualRelatedPrecedentText(manual) {
+  if (manual.relatedPrecedent) return manual.relatedPrecedent;
+  const sources = linkedManualSources(manual).filter(isPrecedentSource);
+  if (!sources.length) return "";
+  return sources.map(formatManualSource).join("\n\n");
+}
+
+function linkedManualSources(manual) {
   const linkedNote = app.data.notes.find(note => note.id === manual.noteId);
   const sourceIds = linkedNote?.linkedSourceIds || [];
-  const sources = sourceIds
+  return sourceIds
     .map(id => app.data.sourceDocuments.find(source => source.id === id))
     .filter(Boolean);
-  if (!sources.length) return "";
-  return sources.map(source => [
+}
+
+function isPrecedentSource(source) {
+  return source.type === "판례";
+}
+
+function formatManualSource(source) {
+  return [
     `- ${source.title}`,
     source.documentNumber ? `  문서번호: ${source.documentNumber}` : "",
     source.sourceDate ? `  일자: ${source.sourceDate}` : "",
     source.officialUrl ? `  링크: ${source.officialUrl}` : "",
     source.summary ? `  메모: ${source.summary}` : ""
-  ].filter(Boolean).join("\n")).join("\n\n");
+  ].filter(Boolean).join("\n");
 }
 
 function manualSystemWorkText(manual) {
@@ -1610,12 +2124,88 @@ function renderSettingsView() {
   `;
 }
 
+function renderBackupView() {
+  const summary = backupSummary(app.data);
+  return `
+    ${renderHeader(
+      "데이터 백업/복원",
+      "컴퓨터를 바꿀 때 백업 파일을 새 PC에서 복원하면 입력하고 저장한 데이터를 그대로 이어서 사용할 수 있습니다.",
+      `<button class="btn primary" data-action="export-data">백업 파일 만들기</button>`
+    )}
+    <div class="grid two">
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>현재 데이터 백업</h2>
+            <small>PC 이동용 JSON</small>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="file-guide">
+            <div>
+              <strong>포함되는 데이터</strong>
+              <span>세목, 카테고리, 즐겨찾기한 법령·판례, 매뉴얼, 등록한 Markdown·TXT 파일 본문, 태그, 검색/작업 메모를 함께 저장합니다.</span>
+            </div>
+            <div>
+              <strong>새 컴퓨터에서 사용</strong>
+              <span>이 컴퓨터에서 백업 파일을 만든 뒤 새 컴퓨터의 같은 메뉴에서 그 JSON 파일을 선택해 복원하세요.</span>
+            </div>
+            <div>
+              <strong>보안 안내</strong>
+              <span>OpenAI/Gemini/DeepSeek/Z.ai API key와 LAW_OC 같은 비밀 키는 백업 파일에 포함하지 않습니다. 새 컴퓨터에서 한 번 다시 입력하세요.</span>
+            </div>
+          </div>
+          <div class="backup-summary">
+            <span class="state-pill">세목 ${summary.taxItems}</span>
+            <span class="state-pill">카테고리 ${summary.categories}</span>
+            <span class="state-pill">즐겨찾기 ${summary.favorites}</span>
+            <span class="state-pill">매뉴얼 ${summary.manuals}</span>
+            <span class="state-pill">등록 파일 ${summary.theoryFiles}</span>
+          </div>
+          <div class="form-actions">
+            <button class="btn primary" data-action="export-data">백업 파일 만들기</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>백업 파일 복원</h2>
+            <small>새 PC에서 JSON 선택</small>
+          </div>
+        </div>
+        <div class="panel-body">
+          <form data-form="import-data" class="form-grid">
+            <div class="field full">
+              <label class="upload-box">
+                <span class="eyebrow">Tax-Flow 백업 JSON</span>
+                <strong>백업 파일을 선택해 현재 데이터로 복원합니다.</strong>
+                <span>복원하면 현재 컴퓨터의 Tax-Flow 데이터가 백업 파일 내용으로 교체됩니다.</span>
+                <input type="file" name="backupFile" accept=".json,application/json" />
+              </label>
+            </div>
+            <div class="field full">
+              <label for="importJson">또는 JSON 직접 붙여넣기</label>
+              <textarea id="importJson" name="json" placeholder="백업 JSON 내용을 붙여넣기"></textarea>
+            </div>
+            <div class="field full form-actions">
+              <button class="btn primary" type="submit">백업 복원</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderGenericCard(item) {
   const kind = item.kind || inferKind(item);
   if (kind === "source") return renderSourceCard(item);
   if (kind === "note") return renderNoteCard(item);
   if (kind === "manual") return renderManualCard(item);
   if (kind === "flow") return renderFlowCard(item);
+  if (kind === "theoryFile") return renderTheoryFileCard(item);
   return "";
 }
 
@@ -1654,6 +2244,7 @@ function renderCountPills(counts) {
     <span class="count-pill">원문 ${counts.sources}</span>
     <span class="count-pill">노트 ${counts.notes}</span>
     <span class="count-pill">매뉴얼 ${counts.manuals}</span>
+    <span class="count-pill">파일 ${counts.files || 0}</span>
     <span class="count-pill">Flow ${counts.flows}</span>
   `;
 }
@@ -1886,9 +2477,11 @@ function renderManualForm(id) {
   const item = app.data.manuals.find(manual => manual.id === id) || {
     id: "",
     taxItemId: app.state.currentTaxItemId,
+    categoryId: app.state.selectedCategoryId,
     title: "",
     theory: "",
     relatedLaw: "",
+    relatedPrecedent: "",
     systemWork: ""
   };
   return `
@@ -1900,12 +2493,23 @@ function renderManualForm(id) {
         <input id="manualTitle" name="title" class="control" value="${escapeAttr(item.title)}" required />
       </div>
       <div class="field full">
+        <label for="manualCategory">하위카테고리</label>
+        <select id="manualCategory" name="categoryId" class="control">
+          <option value="">미분류</option>
+          ${categoryOptions(item.taxItemId, "", item.categoryId)}
+        </select>
+      </div>
+      <div class="field full">
         <label for="manualTheory">이론</label>
         <textarea id="manualTheory" name="theory" style="min-height:160px;" placeholder="쟁점의 판단 기준, 업무 원리, 검토 기준을 정리합니다.">${escapeHtml(manualTheoryText(item))}</textarea>
       </div>
       <div class="field full">
         <label for="manualRelatedLaw">관련 법령</label>
-        <textarea id="manualRelatedLaw" name="relatedLaw" style="min-height:160px;" placeholder="관련 조문, 판례, 질의회신, 원문 링크를 정리합니다.">${escapeHtml(manualRelatedLawText(item))}</textarea>
+        <textarea id="manualRelatedLaw" name="relatedLaw" style="min-height:150px;" placeholder="관련 조문, 법령, 질의회신, 원문 링크를 정리합니다.">${escapeHtml(manualRelatedLawText(item))}</textarea>
+      </div>
+      <div class="field full">
+        <label for="manualRelatedPrecedent">관련 판례</label>
+        <textarea id="manualRelatedPrecedent" name="relatedPrecedent" style="min-height:150px;" placeholder="관련 판례, 결정례, 사건번호, 판단 요지를 정리합니다.">${escapeHtml(manualRelatedPrecedentText(item))}</textarea>
       </div>
       <div class="field full">
         <label for="manualSystemWork">전산 작업</label>
@@ -2050,24 +2654,45 @@ function renderToast() {
 }
 
 function setView(view) {
-  app.state.activeView = normalizeActiveView(view);
+  const nextView = normalizeActiveView(view);
+  app.state.activeView = nextView;
+  app.state.selectedCategoryId = "";
   app.state.listFilter = "";
+  app.state.editingSourceTagsId = "";
+  if (nextView === "manuals") {
+    app.state.selectedManualId = firstByTax(app.data.manuals, app.state.currentTaxItemId)?.id || "";
+  }
   persistUi();
   render();
 }
 
 function normalizeActiveView(view) {
-  return ["legal", "favorites", "manuals"].includes(view) ? view : "legal";
+  return ["legal", "favorites", "theoryFiles", "manuals", "aiSearch", "backup"].includes(view) ? view : "legal";
 }
 
 function setCurrentTaxItem(id) {
   app.state.currentTaxItemId = id;
   app.state.selectedCategoryId = "";
   app.state.listFilter = "";
+  app.state.editingSourceTagsId = "";
   app.state.selectedFlowId = firstByTax(app.data.flows, id)?.id || "";
   app.state.selectedNoteId = firstByTax(app.data.notes, id)?.id || "";
   app.state.selectedManualId = firstByTax(app.data.manuals, id)?.id || "";
   app.state.selectedSourceId = firstByTax(app.data.sourceDocuments, id)?.id || "";
+  render();
+}
+
+function setManualScope(taxItemId, categoryId = "") {
+  if (!taxItemId) return;
+  app.state.currentTaxItemId = taxItemId;
+  app.state.selectedCategoryId = categoryId;
+  app.state.activeView = "manuals";
+  app.state.listFilter = "";
+  app.state.editingSourceTagsId = "";
+  app.state.selectedFlowId = firstByTax(app.data.flows, taxItemId)?.id || "";
+  app.state.selectedNoteId = firstByTax(app.data.notes, taxItemId)?.id || "";
+  app.state.selectedSourceId = firstByTax(app.data.sourceDocuments, taxItemId)?.id || "";
+  app.state.selectedManualId = firstManualByScope(taxItemId, categoryId)?.id || "";
   render();
 }
 
@@ -2266,6 +2891,17 @@ function saveSourceDocument(values) {
   showToast("원문 메타데이터를 저장했습니다.");
 }
 
+function saveSourceTags(values) {
+  const source = app.data.sourceDocuments.find(item => item.id === values.id);
+  if (!source) return;
+  source.tags = parseTags(values.tags);
+  touch(source);
+  app.state.editingSourceTagsId = "";
+  saveData();
+  render();
+  showToast("태그를 저장했습니다.");
+}
+
 function saveNote(values) {
   const payload = {
     taxItemId: values.taxItemId || app.state.currentTaxItemId,
@@ -2304,7 +2940,7 @@ function saveManual(values) {
   if (values.id && !existing) return;
   const payload = {
     taxItemId: values.taxItemId || app.state.currentTaxItemId,
-    categoryId: existing?.categoryId || "",
+    categoryId: values.categoryId || "",
     noteId: existing?.noteId || "",
     title: values.title.trim(),
     status: existing?.status || "draft",
@@ -2312,6 +2948,7 @@ function saveManual(values) {
     systemName: existing?.systemName || "차세대 지방세입정보시스템",
     theory: (values.theory || "").trim(),
     relatedLaw: (values.relatedLaw || "").trim(),
+    relatedPrecedent: (values.relatedPrecedent || "").trim(),
     systemWork: (values.systemWork || "").trim(),
     menuPath: existing?.menuPath || [],
     inputFields: existing?.inputFields || [],
@@ -2378,6 +3015,53 @@ function saveFlow(values) {
   saveData();
   closeModal();
   showToast("Flow를 저장했습니다.");
+}
+
+async function saveTheoryFile(values) {
+  const file = values.file;
+  if (!(file instanceof File) || !file.name || file.size <= 0) {
+    showToast("등록할 파일을 선택하세요.");
+    return;
+  }
+
+  const fileKind = detectTheoryFileKind(file);
+  if (!fileKind) {
+    showToast("Markdown 또는 TXT 파일만 등록할 수 있습니다.");
+    return;
+  }
+
+  if (file.size > THEORY_FILE_MAX_BYTES) {
+    showToast(`파일 용량은 ${formatBytes(THEORY_FILE_MAX_BYTES)} 이하로 등록하세요.`);
+    return;
+  }
+
+  try {
+    const contentText = await file.text();
+    const dataUrl = await readFileAsDataUrl(file);
+    const item = {
+      id: uid("file"),
+      taxItemId: values.taxItemId || app.state.currentTaxItemId,
+      categoryId: values.categoryId || "",
+      title: (values.title || "").trim() || stripFileExtension(file.name),
+      fileName: file.name,
+      fileKind,
+      mimeType: file.type || theoryFileMimeType(fileKind),
+      fileSize: file.size,
+      dataUrl,
+      contentText,
+      memo: (values.memo || "").trim(),
+      tags: parseTags(values.tags),
+      createdAt: now(),
+      updatedAt: now()
+    };
+    app.data.theoryFiles.push(item);
+    saveData();
+    render();
+    showToast("파일을 등록했습니다.");
+  } catch (error) {
+    console.warn("Theory file save failed:", error);
+    showToast("파일을 읽는 중 오류가 발생했습니다.");
+  }
 }
 
 function saveTaxItem(values) {
@@ -3050,6 +3734,9 @@ function toggleFavorite(kind, id) {
   const item = findByKind(kind, id);
   if (!item) return;
   item.favorite = !item.favorite;
+  if (!item.favorite && kind === "source" && app.state.editingSourceTagsId === id) {
+    app.state.editingSourceTagsId = "";
+  }
   touch(item);
   saveData();
   render();
@@ -3077,6 +3764,9 @@ function duplicateNote(id) {
 function createManualFromNote(id) {
   const note = app.data.notes.find(item => item.id === id);
   if (!note) return;
+  const linkedSources = (note.linkedSourceIds || [])
+    .map(sourceId => app.data.sourceDocuments.find(source => source.id === sourceId))
+    .filter(Boolean);
   const manual = {
     id: uid("manual"),
     taxItemId: note.taxItemId,
@@ -3087,10 +3777,13 @@ function createManualFromNote(id) {
     riskLevel: "normal",
     systemName: "차세대 지방세입정보시스템",
     theory: [note.judgmentCriteria, note.body].filter(Boolean).join("\n\n"),
-    relatedLaw: (note.linkedSourceIds || [])
-      .map(sourceId => app.data.sourceDocuments.find(source => source.id === sourceId))
-      .filter(Boolean)
-      .map(source => `- ${source.title}${source.officialUrl ? `\n  링크: ${source.officialUrl}` : ""}`)
+    relatedLaw: linkedSources
+      .filter(source => !isPrecedentSource(source))
+      .map(formatManualSource)
+      .join("\n\n"),
+    relatedPrecedent: linkedSources
+      .filter(isPrecedentSource)
+      .map(formatManualSource)
       .join("\n\n"),
     systemWork: "전산 시스템 메뉴, 입력값, 확인 순서를 보완하세요.",
     menuPath: [],
@@ -3147,6 +3840,9 @@ function deleteItem(kind, id) {
     app.data.flows = app.data.flows.filter(flow => flow.id !== id);
     app.state.selectedFlowId = firstByTax(app.data.flows, app.state.currentTaxItemId)?.id || "";
   }
+  if (kind === "theoryFile") {
+    app.data.theoryFiles = app.data.theoryFiles.filter(file => file.id !== id);
+  }
   app.data.recentItems = app.data.recentItems.filter(itemRef => !(itemRef.type === kind && itemRef.id === id));
   saveData();
   closeModal();
@@ -3196,29 +3892,88 @@ function copyFlowMarkdown(id) {
 }
 
 function exportData() {
-  const blob = new Blob([JSON.stringify(app.data, null, 2)], { type: "application/json" });
+  const backup = createBackupPackage();
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `tax-flow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = `tax-flow-portable-backup-${formatBackupTimestamp(backup.exportedAt)}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  showToast("백업 파일을 내보냈습니다.");
+  showToast("새 컴퓨터에서 복원할 수 있는 백업 파일을 만들었습니다.");
 }
 
-function importData(values) {
+function createBackupPackage() {
+  const data = JSON.parse(JSON.stringify(app.data || createDefaultData()));
+  data.runtimeSettings = {};
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    product: "Tax-Flow",
+    exportedAt: new Date().toISOString(),
+    summary: backupSummary(data),
+    excluded: ["API keys", "LAW_OC"],
+    data
+  };
+}
+
+async function importData(values) {
   try {
-    const parsed = JSON.parse(values.json);
-    validateDataShape(parsed);
-    app.data = migrateData(parsed);
+    const raw = await readImportPayload(values);
+    const parsed = JSON.parse(raw);
+    const data = unwrapBackupData(parsed);
+    validateDataShape(data);
+    const confirmed = window.confirm("현재 Tax-Flow 데이터가 백업 파일 내용으로 교체됩니다. 복원할까요?");
+    if (!confirmed) return;
+    app.data = migrateData(data);
     saveData();
     setCurrentTaxItem(activeTaxItems()[0]?.id || "");
-    showToast("데이터를 가져왔습니다.");
+    app.state.activeView = "backup";
+    render();
+    showToast("백업 데이터를 복원했습니다.");
   } catch (error) {
-    showToast(`가져오기 실패: ${error.message}`);
+    showToast(`복원 실패: ${error.message}`);
   }
+}
+
+async function readImportPayload(values) {
+  const file = values.backupFile instanceof File && values.backupFile.size > 0 ? values.backupFile : null;
+  if (file) return file.text();
+  const raw = String(values.json || "").trim();
+  if (!raw) throw new Error("백업 JSON 파일을 선택하거나 JSON 내용을 붙여넣으세요.");
+  return raw;
+}
+
+function unwrapBackupData(parsed) {
+  if (parsed?.format === BACKUP_FORMAT && parsed.data) return parsed.data;
+  if (parsed?.product === "Tax-Flow" && parsed.data) return parsed.data;
+  return parsed;
+}
+
+function backupSummary(data) {
+  return {
+    taxItems: data?.taxItems?.length || 0,
+    categories: data?.categories?.length || 0,
+    favorites: data?.sourceDocuments?.filter(source => source.favorite).length || 0,
+    sourceDocuments: data?.sourceDocuments?.length || 0,
+    manuals: data?.manuals?.length || 0,
+    theoryFiles: data?.theoryFiles?.length || 0,
+    notes: data?.notes?.length || 0,
+    flows: data?.flows?.length || 0
+  };
+}
+
+function formatBackupTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
+  const pad = number => String(number).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate())
+  ].join("-") + `-${pad(date.getHours())}${pad(date.getMinutes())}`;
 }
 
 function resetData() {
@@ -3254,6 +4009,69 @@ function formValues(form) {
     }
   }
   return values;
+}
+
+function detectTheoryFileKind(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.type || "").toLowerCase();
+  if (name.endsWith(".md") || name.endsWith(".markdown") || type === "text/markdown" || type === "text/x-markdown") return "markdown";
+  if (name.endsWith(".txt") || type === "text/plain") return "txt";
+  return "";
+}
+
+function theoryFileMimeType(kind) {
+  return {
+    markdown: "text/markdown",
+    txt: "text/plain"
+  }[kind] || "application/octet-stream";
+}
+
+function aiProviderStatus(provider) {
+  const status = app.state.settingsStatus?.ai?.providers?.[provider] || {};
+  return {
+    configured: Boolean(status.configured),
+    source: status.source || "missing",
+    saved: Boolean(status.saved),
+    model: normalizeAiModel(provider, status.model)
+  };
+}
+
+function aiModelChoices(provider) {
+  const choices = aiModelOptions[provider] || [];
+  if (choices.length) return choices;
+  return aiDefaultModels[provider] ? [aiDefaultModels[provider]] : [];
+}
+
+function normalizeAiModel(provider, model) {
+  const choices = aiModelChoices(provider);
+  const requested = String(model || "").trim();
+  if (requested && choices.includes(requested)) return requested;
+  const fallback = aiDefaultModels[provider] || choices[0] || requested;
+  return choices.includes(fallback) ? fallback : (choices[0] || fallback || "");
+}
+
+function renderAiModelOptions(provider, selectedModel) {
+  const selected = normalizeAiModel(provider, selectedModel);
+  return aiModelChoices(provider)
+    .map(model => `<option value="${escapeAttr(model)}" ${model === selected ? "selected" : ""}>${escapeHtml(model)}</option>`)
+    .join("");
+}
+
+function capitalizeProviderId(provider) {
+  return String(provider || "").charAt(0).toUpperCase() + String(provider || "").slice(1);
+}
+
+function stripFileExtension(fileName) {
+  return String(fileName || "").replace(/\.[^.]+$/, "") || "이론 자료";
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function categoryOptions(taxItemId, excludeId = "", selectedId = "") {
@@ -3326,16 +4144,15 @@ function buildOfficialResults(query, type) {
 
 function runInternalSearch(query, scope = "current") {
   const exactPhrases = extractExactPhrases(query);
-  const q = normalize(stripExactPhraseQuotes(query));
-  if (!q && !exactPhrases.length) return [];
+  const q = stripExactPhraseQuotes(query);
+  if (!normalizeSearchText(q) && !exactPhrases.length) return [];
   const taxId = app.state.currentTaxItemId;
   return getAllItems()
     .filter(item => scope === "all" || item.taxItemId === taxId)
     .filter(item => {
       const blob = searchBlob(item);
-      const normalizedBlob = normalize(blob);
-      const looseMatch = q ? normalizedBlob.includes(q) : true;
-      const exactMatch = exactPhrases.every(phrase => normalizedBlob.includes(normalize(phrase)));
+      const looseMatch = textMatchesSearch(blob, q);
+      const exactMatch = exactPhrases.every(phrase => textMatchesExactPhrase(blob, phrase));
       return looseMatch && exactMatch;
     })
     .sort(sortUpdated);
@@ -3363,39 +4180,136 @@ function stripExactPhraseQuotes(query) {
 }
 
 function filteredSources() {
-  const q = normalize(app.state.listFilter);
   return app.data.sourceDocuments
     .filter(item => item.taxItemId === app.state.currentTaxItemId)
     .filter(item => !app.state.selectedCategoryId || item.categoryId === app.state.selectedCategoryId)
-    .filter(item => !q || normalize(searchBlob(item)).includes(q))
+    .filter(item => textMatchesSearch(searchBlob(item), app.state.listFilter))
     .sort(sortUpdated);
 }
 
 function filteredNotes() {
-  const q = normalize(app.state.listFilter);
   return app.data.notes
     .filter(item => item.taxItemId === app.state.currentTaxItemId)
     .filter(item => !app.state.selectedCategoryId || item.categoryId === app.state.selectedCategoryId)
-    .filter(item => !q || normalize(searchBlob(item)).includes(q))
+    .filter(item => textMatchesSearch(searchBlob(item), app.state.listFilter))
     .sort(sortUpdated);
 }
 
 function filteredManuals() {
-  const q = normalize(app.state.listFilter);
   return app.data.manuals
     .filter(item => item.taxItemId === app.state.currentTaxItemId)
     .filter(item => !app.state.selectedCategoryId || item.categoryId === app.state.selectedCategoryId)
-    .filter(item => !q || normalize(searchBlob(item)).includes(q))
+    .filter(item => textMatchesSearch(searchBlob(item), app.state.listFilter))
     .sort(sortUpdated);
 }
 
 function filteredFlows() {
-  const q = normalize(app.state.listFilter);
   return app.data.flows
     .filter(item => item.taxItemId === app.state.currentTaxItemId)
     .filter(item => !app.state.selectedCategoryId || item.categoryId === app.state.selectedCategoryId)
-    .filter(item => !q || normalize(searchBlob(item)).includes(q))
+    .filter(item => textMatchesSearch(searchBlob(item), app.state.listFilter))
     .sort(sortUpdated);
+}
+
+function filteredTheoryFiles() {
+  return app.data.theoryFiles
+    .filter(item => item.taxItemId === app.state.currentTaxItemId)
+    .filter(item => textMatchesSearch(searchBlob(item), app.state.listFilter))
+    .sort(sortUpdated);
+}
+
+function buildAiSearchContext(question) {
+  const taxId = app.state.currentTaxItemId;
+  const manuals = app.data.manuals
+    .filter(item => item.taxItemId === taxId)
+    .map(item => ({
+      kind: "manual",
+      kindLabel: "매뉴얼",
+      id: item.id,
+      title: item.title,
+      categoryPath: categoryPath(item.categoryId),
+      updatedAt: item.updatedAt,
+      content: [
+        `제목: ${item.title}`,
+        item.categoryId ? `카테고리: ${categoryPath(item.categoryId)}` : "",
+        manualTheoryText(item) ? `이론:\n${manualTheoryText(item)}` : "",
+        manualRelatedLawText(item) ? `관련 법령:\n${manualRelatedLawText(item)}` : "",
+        manualRelatedPrecedentText(item) ? `관련 판례:\n${manualRelatedPrecedentText(item)}` : "",
+        manualSystemWorkText(item) ? `전산 작업:\n${manualSystemWorkText(item)}` : ""
+      ].filter(Boolean).join("\n\n"),
+      blob: searchBlob(item)
+    }));
+  const files = app.data.theoryFiles
+    .filter(item => item.taxItemId === taxId)
+    .map(item => ({
+      kind: "theoryFile",
+      kindLabel: "등록 파일",
+      id: item.id,
+      title: item.title || item.fileName,
+      categoryPath: categoryPath(item.categoryId),
+      updatedAt: item.updatedAt,
+      content: [
+        `제목: ${item.title || item.fileName}`,
+        item.categoryId ? `카테고리: ${categoryPath(item.categoryId)}` : "",
+        item.fileName ? `파일명: ${item.fileName}` : "",
+        item.memo ? `메모:\n${item.memo}` : "",
+        item.contentText ? `본문:\n${item.contentText}` : ""
+      ].filter(Boolean).join("\n\n"),
+      blob: searchBlob(item)
+    }));
+
+  const ranked = [...manuals, ...files]
+    .filter(item => item.content.trim())
+    .map(item => ({
+      ...item,
+      score: aiContextScore(question, item.blob)
+    }))
+    .sort((a, b) => b.score - a.score || new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+
+  const selected = [];
+  const counters = { manual: 0, theoryFile: 0 };
+  let usedChars = 0;
+  for (const item of ranked) {
+    if (selected.length >= AI_CONTEXT_MAX_ITEMS || usedChars >= AI_CONTEXT_MAX_CHARS) break;
+    const refPrefix = item.kind === "manual" ? "M" : "F";
+    counters[item.kind] += 1;
+    const clipped = trimByChars(item.content, Math.min(AI_CONTEXT_ITEM_MAX_CHARS, AI_CONTEXT_MAX_CHARS - usedChars));
+    if (!clipped) continue;
+    usedChars += clipped.length;
+    selected.push({
+      ref: `[${refPrefix}${counters[item.kind]}]`,
+      kind: item.kind,
+      kindLabel: item.kindLabel,
+      id: item.id,
+      title: item.title,
+      categoryPath: item.categoryPath,
+      content: clipped
+    });
+  }
+
+  return {
+    items: selected,
+    manualCount: manuals.length,
+    fileCount: files.length
+  };
+}
+
+function aiContextScore(question, text) {
+  const q = normalizeSearchText(question);
+  const normalizedText = normalizeSearchText(text);
+  if (!q) return 0;
+  let score = textMatchesSearch(text, question) ? 10 : 0;
+  const tokens = q.split(/\s+/).filter(token => token.length >= 2);
+  tokens.forEach(token => {
+    if (normalizedText.includes(token)) score += 2;
+  });
+  return score;
+}
+
+function trimByChars(value, maxChars) {
+  const text = String(value || "").trim();
+  if (maxChars <= 0) return "";
+  return text.length > maxChars ? `${text.slice(0, Math.max(0, maxChars - 12))}\n...[생략]` : text;
 }
 
 function searchBlob(item) {
@@ -3409,6 +4323,10 @@ function searchBlob(item) {
   if (kind === "manual") {
     return [
       item.title,
+      manualTheoryText(item),
+      manualRelatedLawText(item),
+      manualRelatedPrecedentText(item),
+      manualSystemWorkText(item),
       item.systemName,
       (item.menuPath || []).join(" "),
       formatInputFields(item.inputFields),
@@ -3426,6 +4344,17 @@ function searchBlob(item) {
       ...item.manualIds.map(id => app.data.manuals.find(manual => manual.id === id)?.title || "")
     ];
     return [item.title, item.issueSummary, categoryPath(item.categoryId), ...(item.tags || []), ...linked].join(" ");
+  }
+  if (kind === "theoryFile") {
+    return [
+      item.title,
+      item.fileName,
+      theoryFileTypeLabels[item.fileKind] || item.fileKind,
+      item.memo,
+      item.contentText,
+      categoryPath(item.categoryId),
+      ...(item.tags || [])
+    ].join(" ");
   }
   return "";
 }
@@ -3451,9 +4380,10 @@ function categoryCounts(categoryId, includeDescendants = false) {
     sources: app.data.sourceDocuments.filter(item => ids.includes(item.categoryId)).length,
     notes: app.data.notes.filter(item => ids.includes(item.categoryId)).length,
     manuals: app.data.manuals.filter(item => ids.includes(item.categoryId)).length,
+    files: app.data.theoryFiles.filter(item => ids.includes(item.categoryId)).length,
     flows: app.data.flows.filter(item => ids.includes(item.categoryId)).length
   };
-  counts.total = counts.sources + counts.notes + counts.manuals + counts.flows;
+  counts.total = counts.sources + counts.notes + counts.manuals + counts.files + counts.flows;
   return counts;
 }
 
@@ -3500,17 +4430,25 @@ function firstByTax(items, taxItemId) {
   return items.filter(item => item.taxItemId === taxItemId).sort(sortUpdated)[0];
 }
 
+function firstManualByScope(taxItemId, categoryId = "") {
+  return app.data.manuals
+    .filter(item => item.taxItemId === taxItemId)
+    .filter(item => !categoryId || item.categoryId === categoryId)
+    .sort(sortUpdated)[0];
+}
+
 function getAllItems() {
   return [
     ...app.data.sourceDocuments.map(item => ({ ...item, kind: "source" })),
     ...app.data.notes.map(item => ({ ...item, kind: "note" })),
     ...app.data.manuals.map(item => ({ ...item, kind: "manual" })),
-    ...app.data.flows.map(item => ({ ...item, kind: "flow" }))
+    ...app.data.flows.map(item => ({ ...item, kind: "flow" })),
+    ...app.data.theoryFiles.map(item => ({ ...item, kind: "theoryFile" }))
   ];
 }
 
 function mutableItemCollections() {
-  return [app.data.sourceDocuments, app.data.notes, app.data.manuals, app.data.flows];
+  return [app.data.sourceDocuments, app.data.notes, app.data.manuals, app.data.flows, app.data.theoryFiles];
 }
 
 function refToItem(ref) {
@@ -3522,6 +4460,7 @@ function findByKind(kind, id) {
   if (kind === "note") return app.data.notes.find(item => item.id === id);
   if (kind === "manual") return app.data.manuals.find(item => item.id === id);
   if (kind === "flow") return app.data.flows.find(item => item.id === id);
+  if (kind === "theoryFile") return app.data.theoryFiles.find(item => item.id === id);
   return null;
 }
 
@@ -3531,6 +4470,7 @@ function inferKind(item) {
   if (item.judgmentCriteria !== undefined || item.body !== undefined) return "note";
   if (item.menuPath !== undefined || item.checklist !== undefined) return "manual";
   if (item.issueSummary !== undefined || item.sourceIds !== undefined) return "flow";
+  if (item.fileName !== undefined || item.fileKind !== undefined) return "theoryFile";
   return "";
 }
 
@@ -3539,7 +4479,8 @@ function kindLabel(kind) {
     source: "원문",
     note: "노트",
     manual: "매뉴얼",
-    flow: "Flow"
+    flow: "Flow",
+    theoryFile: "파일"
   }[kind] || kind;
 }
 
@@ -3594,7 +4535,14 @@ async function loadData() {
 
 function saveData() {
   if (!app.data) return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(app.data));
+  const payload = JSON.stringify(app.data);
+  try {
+    localStorage.setItem(STORAGE_KEY, payload);
+    app.state.storageWarning = "";
+  } catch (error) {
+    console.warn("Tax-Flow local storage save skipped:", error);
+    app.state.storageWarning = "브라우저 저장공간이 부족해 로컬 사본 저장에 실패했습니다. 실행 중인 로컬 서버 저장은 계속 시도합니다.";
+  }
   queueServerSave();
 }
 
@@ -3669,6 +4617,116 @@ async function saveRuntimeSettings(values) {
   render();
 }
 
+async function saveAiSettings(values) {
+  app.state.settingsMessage = "";
+  app.state.settingsError = "";
+
+  if (!canUseServerStorage()) {
+    app.state.settingsError = "AI API key는 로컬 서버로 실행 중일 때만 저장할 수 있습니다.";
+    render();
+    return;
+  }
+
+  const aiKeys = {};
+  const aiModels = {};
+  const clearAiKeys = [];
+  Object.keys(aiProviderLabels).forEach(provider => {
+    const keyValue = (values[`${provider}Key`] || "").trim();
+    const modelValue = (values[`${provider}Model`] || "").trim();
+    if (keyValue) aiKeys[provider] = keyValue;
+    if (modelValue) aiModels[provider] = modelValue;
+    if (values[`clear${capitalizeProviderId(provider)}Key`] === "1") clearAiKeys.push(provider);
+  });
+
+  if (!Object.keys(aiKeys).length && !Object.keys(aiModels).length && !clearAiKeys.length) {
+    app.state.settingsMessage = "변경할 AI 설정이 없어 기존 설정을 유지했습니다.";
+    render();
+    return;
+  }
+
+  try {
+    const response = await fetch(SERVER_SETTINGS_ENDPOINT, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({ ai_keys: aiKeys, ai_models: aiModels, clear_ai_keys: clearAiKeys })
+    });
+    if (!response.ok) throw new Error(`AI 설정 저장 실패: ${response.status}`);
+    const payload = await response.json();
+    app.state.settingsStatus = payload.settings || localRuntimeSettingsStatus();
+    app.state.settingsMessage = "AI API key 설정을 저장했습니다.";
+  } catch (error) {
+    console.warn("Tax-Flow AI settings save skipped:", error);
+    app.state.settingsError = "AI 설정 저장에 실패했습니다. 로컬 서버 상태를 확인하세요.";
+  }
+  render();
+}
+
+async function runAiSearch(values) {
+  const question = (values.question || "").trim();
+  const provider = values.provider || app.state.aiProvider || "openai";
+  const model = normalizeAiModel(provider, values.model || aiProviderStatus(provider).model);
+  app.state.aiProvider = provider;
+  app.state.aiQuestion = question;
+  app.state.aiModelOverride = model;
+  app.state.aiAnswer = "";
+  app.state.aiReferences = [];
+  app.state.aiError = "";
+
+  if (!question) {
+    app.state.aiError = "질문을 입력하세요.";
+    render();
+    return;
+  }
+  if (!canUseServerStorage()) {
+    app.state.aiError = "AI 검색은 로컬 서버로 실행 중일 때 사용할 수 있습니다.";
+    render();
+    return;
+  }
+  if (!aiProviderStatus(provider).configured) {
+    app.state.aiError = `${aiProviderLabels[provider] || provider} API key를 먼저 저장하세요.`;
+    render();
+    return;
+  }
+
+  const context = buildAiSearchContext(question);
+  if (!context.items.length) {
+    app.state.aiError = "답변에 사용할 매뉴얼 또는 등록 파일이 없습니다.";
+    render();
+    return;
+  }
+
+  app.state.aiLoading = true;
+  render();
+  try {
+    const response = await fetch(SERVER_AI_SEARCH_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        provider,
+        model,
+        question,
+        taxItemName: currentTaxItemName(app.state.currentTaxItemId),
+        contextItems: context.items
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.message || `AI 검색 실패: ${response.status}`);
+    app.state.aiAnswer = payload.answer || "";
+    app.state.aiReferences = context.items.map(item => ({
+      ref: item.ref,
+      title: item.title,
+      kindLabel: item.kindLabel,
+      categoryPath: item.categoryPath
+    }));
+  } catch (error) {
+    console.warn("Tax-Flow AI search failed:", error);
+    app.state.aiError = error.message || "AI 검색 중 오류가 발생했습니다.";
+  } finally {
+    app.state.aiLoading = false;
+    render();
+  }
+}
+
 function saveRuntimeSettingsLocally(lawOc) {
   app.data.runtimeSettings = {
     ...(app.data.runtimeSettings || {}),
@@ -3685,6 +4743,12 @@ function localRuntimeSettingsStatus() {
       configured: Boolean(lawOc),
       source: lawOc ? "localStorage" : "missing",
       saved: Boolean(lawOc)
+    },
+    ai: {
+      providers: Object.fromEntries(Object.keys(aiProviderLabels).map(provider => [
+        provider,
+        { configured: false, source: "missing", saved: false, model: aiDefaultModels[provider] || "" }
+      ]))
     },
     settingsFile: "브라우저 localStorage"
   };
@@ -3748,6 +4812,7 @@ function migrateData(data) {
     notes: data.notes || [],
     manuals: data.manuals || [],
     flows: data.flows || [],
+    theoryFiles: data.theoryFiles || [],
     tags: data.tags || [],
     bookmarks: data.bookmarks || [],
     recentItems: data.recentItems || [],
@@ -3768,7 +4833,54 @@ function migrateData(data) {
     tags: [],
     ...source
   }));
+  migrated.theoryFiles = migrated.theoryFiles.map(file => ({
+    tags: [],
+    memo: "",
+    contentText: "",
+    dataUrl: "",
+    ...file
+  }));
+  ensureManualCategories(migrated);
   return migrated;
+}
+
+function ensureManualCategories(data) {
+  requiredManualCategories.forEach(spec => {
+    const existing = data.categories.find(category => category.id === spec.id);
+    if (existing) {
+      existing.name = spec.name;
+      existing.description = existing.description || spec.description;
+      existing.sortOrder = spec.sortOrder;
+      existing.parentId = "";
+      existing.status = existing.status === "archived" ? "active" : (existing.status || "active");
+      return;
+    }
+
+    const sameName = data.categories.find(category =>
+      category.taxItemId === spec.taxItemId
+      && normalize(category.name) === normalize(spec.name)
+      && !category.parentId
+    );
+    if (sameName) {
+      sameName.description = sameName.description || spec.description;
+      sameName.sortOrder = spec.sortOrder;
+      sameName.status = sameName.status === "archived" ? "active" : (sameName.status || "active");
+      return;
+    }
+
+    const timestamp = now();
+    data.categories.push({
+      id: spec.id,
+      taxItemId: spec.taxItemId,
+      parentId: "",
+      name: spec.name,
+      description: spec.description,
+      status: "active",
+      sortOrder: spec.sortOrder,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    });
+  });
 }
 
 function validateDataShape(data) {
@@ -3859,13 +4971,14 @@ function createDefaultData() {
     cat("cat-prop-building", "tax-property", "", "건축물", "건축물 과세대상 및 시가표준액", 3),
     cat("cat-prop-house", "tax-property", "", "주택", "주택분 재산세", 4),
     cat("cat-prop-reduction", "tax-property", "", "감면", "감면 요건과 사후관리", 5),
-    cat("cat-local-income-personal", "tax-local-income", "", "개인지방소득세", "종합소득·양도소득·특별징수 연계", 1),
-    cat("cat-local-income-corporate", "tax-local-income", "", "법인지방소득세", "법인 신고·납부와 안분 검토", 2),
-    cat("cat-local-income-withholding", "tax-local-income", "", "특별징수", "특별징수 신고, 납부, 정산", 3),
-    cat("cat-local-income-payment", "tax-local-income", "", "신고·납부", "신고기한, 납부확인, 가산세", 4),
+    cat("cat-local-income-personal", "tax-local-income", "", "종합소득분", "종합소득분 지방소득세 신고·부과 업무", 1),
+    cat("cat-local-income-transfer", "tax-local-income", "", "양도소득분", "양도소득분 지방소득세 신고·부과 업무", 2),
+    cat("cat-local-income-corporate", "tax-local-income", "", "법인", "법인지방소득세 신고·납부와 안분 검토", 3),
+    cat("cat-local-income-withholding", "tax-local-income", "", "특별징수", "특별징수 신고, 납부, 정산", 4),
+    cat("cat-local-income-payment", "tax-local-income", "", "신고·납부", "신고기한, 납부확인, 가산세", 5),
     cat("cat-resident-individual", "tax-resident", "", "개인분", "개인분 주민세 부과·감면", 1),
-    cat("cat-resident-business", "tax-resident", "", "사업소분", "사업소분 신고·납부와 과세대상", 2),
-    cat("cat-resident-employee", "tax-resident", "", "종업원분", "종업원분 과세표준과 신고", 3),
+    cat("cat-resident-employee", "tax-resident", "", "종업원분", "종업원분 과세표준과 신고", 2),
+    cat("cat-resident-business", "tax-resident", "", "사업소분", "사업소분 신고·납부와 과세대상", 3),
     cat("cat-resident-payment", "tax-resident", "", "신고·납부", "납부확인, 독촉, 가산세", 4),
     cat("cat-resident-delinquency", "tax-resident", "", "체납", "체납 정리, 독촉, 압류, 징수 관리", 5)
   ];
@@ -4051,6 +5164,7 @@ function createDefaultData() {
     notes,
     manuals,
     flows,
+    theoryFiles: [],
     tags: [],
     bookmarks: [],
     recentItems: [
@@ -4183,7 +5297,62 @@ function groupBy(items, getter) {
 }
 
 function normalize(value) {
-  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return normalizeSearchText(value);
+}
+
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[\u200b-\u200d\ufeff]/g, "")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compactSearchText(value) {
+  return normalizeSearchText(value).replace(/[\s"'`~!@#$%^&*()_+\-=[\]{};:,.<>/?\\|·ㆍ•]+/g, "");
+}
+
+function searchTokens(value) {
+  return normalizeSearchText(value).split(" ").map(compactSearchText).filter(Boolean);
+}
+
+function textMatchesSearch(text, query) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+
+  const normalizedText = normalizeSearchText(text);
+  const compactText = compactSearchText(normalizedText);
+  const initialText = hangulInitials(compactText);
+
+  return searchTokens(normalizedQuery).every(token => {
+    if (normalizedText.includes(token)) return true;
+    if (compactText.includes(token)) return true;
+    if (hasHangulInitials(token) && initialText.includes(token)) return true;
+    return false;
+  });
+}
+
+function textMatchesExactPhrase(text, phrase) {
+  const normalizedPhrase = normalizeSearchText(phrase);
+  if (!normalizedPhrase) return true;
+
+  const normalizedText = normalizeSearchText(text);
+  return normalizedText.includes(normalizedPhrase) || compactSearchText(normalizedText).includes(compactSearchText(normalizedPhrase));
+}
+
+function hangulInitials(value) {
+  return Array.from(String(value || "")).map(char => {
+    const code = char.charCodeAt(0);
+    if (code < HANGUL_BASE_CODE || code > HANGUL_END_CODE) return char;
+    return HANGUL_INITIALS[Math.floor((code - HANGUL_BASE_CODE) / 588)];
+  }).join("");
+}
+
+function hasHangulInitials(value) {
+  return /[ㄱ-ㅎ]/.test(value);
 }
 
 function trimText(value, length) {
@@ -4208,6 +5377,20 @@ function formatDate(value) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = value / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const rounded = size >= 10 ? Math.round(size) : Math.round(size * 10) / 10;
+  return `${rounded} ${units[unitIndex]}`;
 }
 
 function uid(prefix) {
