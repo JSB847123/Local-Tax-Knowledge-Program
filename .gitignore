@@ -3,6 +3,11 @@ __pycache__/
 
 taxflow-server.log
 taxflow-server.err.log
+taxflow-exe-test.log
+taxflow-exe-test.err.log
+
+build/
+dist/
 
 data/runtime-settings.json
 

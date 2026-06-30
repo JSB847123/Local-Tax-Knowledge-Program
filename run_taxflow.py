@@ -23,8 +23,20 @@ from xml.etree import ElementTree as ET
 from legal_query_parser import DEFAULT_SEARCH_FIELDS, parse_legal_query_to_elasticsearch_dsl
 
 
-ROOT = Path(__file__).resolve().parent
-DATA_DIR = ROOT / "data"
+def bundled_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
+    return Path(__file__).resolve().parent
+
+
+def writable_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return bundled_root()
+
+
+ROOT = bundled_root()
+DATA_DIR = writable_root() / "data"
 DATA_FILE = DATA_DIR / "taxflow-data.json"
 SETTINGS_FILE = DATA_DIR / "runtime-settings.json"
 HOST = "127.0.0.1"
@@ -150,6 +162,32 @@ LAW_ALIAS_ENTRIES = [
         "aliases": ["부가세법"],
     },
 ]
+
+LOCAL_TAX_LAW_KEYWORDS = [
+    "지방세법",
+    "지방세법 시행령",
+    "지방세법 시행규칙",
+    "지방세기본법",
+    "지방세징수법",
+    "지방세특례제한법",
+    "지방세특례제한법 시행령",
+    "지방세특례제한법 시행규칙",
+    "취득세",
+    "재산세",
+    "주민세",
+    "지방소득세",
+    "등록면허세",
+]
+TAX_LAW_KEYWORDS = [
+    "국세기본법",
+    "법인세법",
+    "소득세법",
+    "부가가치세법",
+    "조세특례제한법",
+    "세법",
+    "조세",
+]
+LAW_TITLE_HINT_RE = re.compile(r"(법|법률|시행령|시행규칙|규칙|조례|고시|예규|훈령)$")
 
 SEOUL_DISTRICTS = [
     "강남구", "강동구", "강북구", "강서구", "관악구", "광진구", "구로구", "금천구",
@@ -712,6 +750,19 @@ def normalize_alias_key(value: str) -> str:
     return text
 
 
+def looks_like_law_title(query: str) -> bool:
+    normalized = normalize_law_search_text(query)
+    key = normalize_alias_key(normalized)
+    if not key:
+        return False
+    for entry in LAW_ALIAS_ENTRIES:
+        candidate_keys = [normalize_alias_key(str(entry["canonical"]))]
+        candidate_keys.extend(normalize_alias_key(alias) for alias in entry.get("aliases", []))
+        if key in candidate_keys:
+            return True
+    return bool(LAW_TITLE_HINT_RE.search(normalized))
+
+
 def resolve_law_alias(law_name: str) -> dict[str, object]:
     normalized_key = normalize_alias_key(law_name)
     for entry in LAW_ALIAS_ENTRIES:
@@ -1013,6 +1064,7 @@ def legal_targets_for_type(source_type: str) -> list[str]:
 
 
 def search_law_target(law_oc: str, query: str, target: str, max_results: int) -> list[dict[str, str]]:
+    collected: list[dict[str, str]] = []
     for attempt in target_search_attempts(target, query):
         params = {
             "OC": law_oc,
@@ -1045,7 +1097,12 @@ def search_law_target(law_oc: str, query: str, target: str, max_results: int) ->
         if attempt["label"] != query:
             for result in sorted_results:
                 result["matchedQuery"] = attempt["label"]
-        return sorted_results[:max_results]
+        if target != "law":
+            return sorted_results[:max_results]
+        collected.extend(sorted_results)
+
+    if target == "law" and collected:
+        return sort_law_results(dedupe_law_results(collected), query, target)[:max_results]
     return []
 
 
@@ -1066,6 +1123,17 @@ def target_search_attempts(target: str, query: str) -> list[dict[str, object]]:
             add(case_number, {"nb": case_number})
         add(query, {"query": query})
         add(f"{query} 본문검색", {"query": query, "search": "2"})
+        return attempts
+
+    if target == "law":
+        title_params = {"query": query}
+        body_params = {"query": query, "search": "2"}
+        if looks_like_law_title(query):
+            add(query, title_params)
+            add(f"{query} 본문검색", body_params)
+        else:
+            add(f"{query} 본문검색", body_params)
+            add(query, title_params)
         return attempts
 
     add(query, {"query": query})
@@ -1172,7 +1240,7 @@ def map_law_record(node: ET.Element, target: str) -> dict[str, str]:
             "abbr": abbr,
             "statusCode": status_code,
             "sourceName": "국가법령정보센터",
-            "officialUrl": detail_link or f"{LAW_BASE_URL}/LSW/lsInfoP.do?lsiSeq={mst}",
+            "officialUrl": public_law_url(mst) or detail_link,
             "sourceDate": effective_date or promulgation_date,
             "documentNumber": law_id or mst,
             "summary": " / ".join(part for part in [
@@ -1194,7 +1262,7 @@ def map_law_record(node: ET.Element, target: str) -> dict[str, str]:
             "type": "판례",
             "title": title or case_no or "판례",
             "sourceName": court_name or "국가법령정보센터",
-            "officialUrl": detail_link or (f"{LAW_BASE_URL}/LSW/precInfoP.do?precSeq={serial_no}" if serial_no else ""),
+            "officialUrl": public_precedent_url(serial_no) or detail_link,
             "sourceDate": decision_date,
             "documentNumber": case_no or serial_no,
             "summary": " / ".join(part for part in [court_name, case_no, decision_date] if part),
@@ -1276,15 +1344,37 @@ def sort_law_results(results: list[dict[str, str]], query: str, target: str) -> 
     if target != "law":
         return sorted(results, key=lambda item: (
             exact_title_rank(item, query),
-            item.get("sourceDate", ""),
+            sortable_date_rank(item.get("sourceDate", "")),
             item.get("title", ""),
         ))
     return sorted(results, key=lambda item: (
         exact_title_rank(item, query),
+        law_domain_rank(item),
         1 if item.get("statusCode") == "연혁" else 0,
-        item.get("sourceDate", ""),
+        sortable_date_rank(item.get("sourceDate", "")),
         item.get("title", ""),
     ))
+
+
+def law_domain_rank(item: dict[str, str]) -> int:
+    title = normalize_alias_key(item.get("title", ""))
+    summary = normalize_alias_key(item.get("summary", ""))
+    if any(normalize_alias_key(keyword) in title for keyword in LOCAL_TAX_LAW_KEYWORDS):
+        return 0
+    if any(normalize_alias_key(keyword) in title for keyword in TAX_LAW_KEYWORDS):
+        return 1
+    if "행정안전부" in summary and ("세" in title or "지방" in title):
+        return 1
+    if "세" in title:
+        return 2
+    return 3
+
+
+def sortable_date_rank(value: str) -> int:
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) >= 8:
+        return -int(digits[:8])
+    return 0
 
 
 def exact_title_rank(item: dict[str, str], query: str) -> int:
@@ -1351,15 +1441,34 @@ def clean_text(value: str | None) -> str:
     return " ".join((value or "").split())
 
 
+def public_law_url(mst: str) -> str:
+    return f"{LAW_BASE_URL}/LSW/lsInfoP.do?lsiSeq={quote(mst)}" if mst else ""
+
+
+def public_precedent_url(serial_no: str) -> str:
+    return f"{LAW_BASE_URL}/LSW/precInfoP.do?precSeq={quote(serial_no)}" if serial_no else ""
+
+
+def strip_sensitive_query_params(url: str) -> str:
+    parsed = urlparse(url)
+    params = [
+        (key, value)
+        for key, value in parse_qs(parsed.query, keep_blank_values=True).items()
+        if key.lower() not in {"oc", "apikey", "api_key", "authkey", "auth_key", "key"}
+    ]
+    query = urlencode([(key, item) for key, values in params for item in values])
+    return parsed._replace(query=query).geturl()
+
+
 def normalize_detail_link(url: str) -> str:
     link = (url or "").strip()
     if not link:
         return ""
     if link.startswith(("http://", "https://")):
-        return link
+        return strip_sensitive_query_params(link)
     if link.startswith("/"):
-        return urljoin(LAW_BASE_URL, link)
-    return urljoin(f"{LAW_BASE_URL}/", link)
+        return strip_sensitive_query_params(urljoin(LAW_BASE_URL, link))
+    return strip_sensitive_query_params(urljoin(f"{LAW_BASE_URL}/", link))
 
 
 def format_date(value: str) -> str:
