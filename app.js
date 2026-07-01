@@ -1318,6 +1318,7 @@ function renderAiSearchView() {
               <button class="btn primary" type="submit" ${app.state.aiLoading || !context.items.length ? "disabled" : ""}>${app.state.aiLoading ? "답변 생성 중..." : "AI에게 질문"}</button>
             </div>
           </form>
+          ${renderAiReferenceGuide()}
           ${app.state.aiError ? `<div class="item-card warning-card">${escapeHtml(app.state.aiError)}</div>` : ""}
         </div>
       </section>
@@ -1360,6 +1361,28 @@ function renderAiSearchView() {
         ` : renderEmpty("질문을 입력하면 매뉴얼과 등록 파일을 근거로 답변을 생성합니다.")}
       </div>
     </section>
+  `;
+}
+
+function renderAiReferenceGuide() {
+  return `
+    <div class="ai-reference-guide" aria-label="AI 답변 근거 표시 안내">
+      <div>
+        <p class="item-title">답변 근거 표시 안내</p>
+        <p class="item-summary">AI 답변에 붙는 번호는 어떤 자료를 근거로 삼았는지 보여주는 표시입니다.</p>
+      </div>
+      <div class="reference-guide-grid">
+        <div>
+          <span class="type-pill">M1 · M2</span>
+          <p>매뉴얼 근거입니다. AI에 전달된 매뉴얼이 관련도 높은 순서로 M1, M2처럼 번호가 붙습니다.</p>
+        </div>
+        <div>
+          <span class="type-pill">F1 · F2</span>
+          <p>등록 파일 근거입니다. Markdown 또는 TXT 파일이 답변 근거로 쓰일 때 F1, F2처럼 표시됩니다.</p>
+        </div>
+      </div>
+      <p class="reference-guide-note">같은 번호는 위의 검색 근거 목록과 아래 AI 답변의 근거 카드에서 확인할 수 있습니다. 번호는 질문할 때마다 선택된 자료 순서에 따라 다시 매겨집니다.</p>
+    </div>
   `;
 }
 

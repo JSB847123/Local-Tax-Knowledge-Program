@@ -1016,6 +1016,35 @@ textarea:focus {
   margin-top: 8px;
 }
 
+.ai-reference-guide {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.reference-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reference-guide-grid > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.reference-guide-grid p,
+.reference-guide-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
 .ai-answer {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1069,6 +1098,10 @@ textarea:focus {
 
   .top-search,
   .filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .reference-guide-grid {
     grid-template-columns: 1fr;
   }
 }
